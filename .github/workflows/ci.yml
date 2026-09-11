@@ -20,6 +20,8 @@ jobs:
         run: node balloon.test.js
       - name: Sky Rescue tests
         run: node sky-rescue.test.mjs
+      - name: Authored level integrity tests
+        run: node level-integrity.test.mjs
       - name: JavaScript syntax checks
         run: |
           node --check balloon.js
