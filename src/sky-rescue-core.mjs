@@ -80,6 +80,41 @@ export function isLevelUnlocked(level, levels, progress = {}) {
   return Boolean(previous?.completed || previous?.stars > 0);
 }
 
+export function chooseRainbowColor(grid, c, r, neighborsFn) {
+  const counts = new Map();
+  for (const [nc, nr] of neighborsFn(c, r)) {
+    const color = grid.get(`${nc},${nr}`);
+    if (!color) continue;
+    counts.set(color, (counts.get(color) || 0) + 1);
+  }
+  let bestColor = 0;
+  let bestCount = -1;
+  for (const [color, count] of counts) {
+    if (count > bestCount || (count === bestCount && color < bestColor)) {
+      bestColor = color;
+      bestCount = count;
+    }
+  }
+  return bestColor;
+}
+
+export function bombAffectedKeys(c, r, neighborsFn) {
+  const keys = new Set([`${c},${r}`]);
+  for (const [nc, nr] of neighborsFn(c, r)) keys.add(`${nc},${nr}`);
+  return [...keys];
+}
+
+export function isOptionalComplete(optional, state = {}) {
+  if (!optional) return false;
+  if (optional.type === 'accuracy') {
+    return (Number(state.misses) || 0) <= (Number(optional.maxMisses) || 0);
+  }
+  if (optional.type === 'shots-left') {
+    return (Number(state.shotsRemaining) || 0) >= (Number(optional.amount) || 0);
+  }
+  return false;
+}
+
 export function objectiveLabel(objective = { type: 'clear' }) {
   const amount = objective.amount || 1;
   switch (objective.type) {
