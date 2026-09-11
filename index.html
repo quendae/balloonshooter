@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#8fd4ff">
+  <title>Balloon: Sky Rescue</title>
+  <meta name="description" content="Precyzyjny bubble shooter z ręcznie projektowaną kampanią, ratowaniem postaci i lawinami balonów.">
+  <link rel="stylesheet" href="styles/base.css">
+  <link rel="stylesheet" href="styles/map.css">
+  <link rel="stylesheet" href="styles/game.css">
+</head>
+<body>
+  <div class="sky-decor sky-decor-a" aria-hidden="true"></div>
+  <div class="sky-decor sky-decor-b" aria-hidden="true"></div>
+
+  <header class="app-header">
+    <button class="brand" id="homeButton" type="button" aria-label="Wróć do mapy kampanii">
+      <span class="brand-mark" aria-hidden="true">B</span>
+      <span><strong>Balloon</strong><small>Sky Rescue</small></span>
+    </button>
+    <div class="header-actions">
+      <div class="star-bank" aria-label="Łączna liczba gwiazdek">
+        <span aria-hidden="true">★</span><strong id="totalStars">0</strong><span class="star-bank-max">/ 45</span>
+      </div>
+      <a class="button button-ghost" href="balloon.html">Tryb klasyczny</a>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <section class="screen map-screen" id="mapScreen" aria-labelledby="campaignTitle">
+      <div class="campaign-intro">
+        <div>
+          <p class="world-kicker">Wyprawa ratunkowa</p>
+          <h1 id="campaignTitle">Niebo pełne zagadek.</h1>
+          <p>Celuj precyzyjnie, odcinaj całe konstrukcje i uwalniaj zagubionych mieszkańców chmur. Każdy poziom ma jeden czytelny pomysł — bez energii, skrzynek i przypadkowych przeszkód.</p>
+        </div>
+        <button class="button button-primary button-large" id="continueButton" type="button">Leć dalej</button>
+      </div>
+      <div class="campaign-map" id="campaignMap" aria-label="Mapa kampanii"></div>
+    </section>
+
+    <section class="screen game-screen" id="gameScreen" hidden aria-label="Rozgrywka">
+      <div class="game-toolbar">
+        <button class="icon-button" id="backButton" type="button" aria-label="Wróć do mapy">←</button>
+        <div class="game-title-block">
+          <span id="gameWorldLabel">Świat</span>
+          <strong id="gameLevelLabel">Poziom</strong>
+        </div>
+        <button class="icon-button" id="pauseButton" type="button" aria-label="Pauza">Ⅱ</button>
+      </div>
+
+      <div class="game-layout">
+        <aside class="hud-panel objective-panel" aria-live="polite">
+          <span class="hud-label">Cel</span>
+          <strong id="objectiveLabel">Oczyść niebo</strong>
+          <div class="objective-progress"><span id="objectiveCurrent">0</span><span aria-hidden="true">/</span><span id="objectiveTarget">1</span></div>
+          <p id="levelHint" class="hud-note"></p>
+          <div class="boss-meter" id="bossMeter" hidden>
+            <span>Fazy bossa</span>
+            <div id="bossPips" class="boss-pips" aria-label="Postęp bossa"></div>
+          </div>
+        </aside>
+
+        <div class="playfield-column">
+          <div class="playfield-frame">
+            <canvas id="gameCanvas" width="240" height="320"></canvas>
+            <div class="combo-callout" id="comboCallout" role="status" aria-live="polite"></div>
+          </div>
+          <p class="controls-hint">Celuj kursorem lub strzałkami • kliknij albo naciśnij spację</p>
+        </div>
+
+        <aside class="hud-panel status-panel">
+          <div class="score-block">
+            <span class="hud-label">Wynik</span>
+            <strong id="scoreValue">0</strong>
+            <span class="combo-value" id="comboValue">Combo ×1</span>
+          </div>
+          <div class="shot-queue-wrap">
+            <span class="hud-label">Kolejka</span>
+            <div class="shot-queue" id="shotQueue" aria-label="Aktualny i dwa następne balony"></div>
+          </div>
+          <dl class="run-stats">
+            <div><dt>Strzały</dt><dd id="shotsValue">0</dd></div>
+            <div><dt>Sufit za</dt><dd id="dropValue">0</dd></div>
+            <div><dt>Pudła</dt><dd id="missesValue">0</dd></div>
+          </dl>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <dialog class="game-dialog result-dialog" id="resultDialog" aria-labelledby="resultTitle">
+    <div class="dialog-art" aria-hidden="true">☁</div>
+    <p class="dialog-kicker" id="resultKicker">Poziom ukończony</p>
+    <h2 id="resultTitle">Świetny lot!</h2>
+    <div class="result-stars" id="resultStars" aria-label="Zdobyte gwiazdki"></div>
+    <strong class="result-score" id="resultScore">0</strong>
+    <p id="resultDetail"></p>
+    <div class="dialog-actions">
+      <button class="button button-ghost" id="resultMapButton" type="button">Mapa</button>
+      <button class="button button-secondary" id="retryButton" type="button">Powtórz</button>
+      <button class="button button-primary" id="nextButton" type="button">Następny poziom</button>
+    </div>
+  </dialog>
+
+  <dialog class="game-dialog pause-dialog" id="pauseDialog" aria-labelledby="pauseTitle">
+    <p class="dialog-kicker">Lot wstrzymany</p>
+    <h2 id="pauseTitle">Pauza</h2>
+    <p>Plansza zaczeka. Możesz wrócić do mapy albo kontynuować ten sam strzał.</p>
+    <div class="dialog-actions">
+      <button class="button button-ghost" id="pauseMapButton" type="button">Mapa</button>
+      <button class="button button-primary" id="resumeButton" type="button">Kontynuuj</button>
+    </div>
+  </dialog>
+
+  <script src="balloon.js"></script>
+  <script type="module" src="src/app.mjs"></script>
+</body>
+</html>
