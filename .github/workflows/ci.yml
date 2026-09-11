@@ -33,6 +33,7 @@ jobs:
           node --check src/save.mjs
           node --check src/game-physics.mjs
           node --check src/game-renderer.mjs
+          node --check src/wind-renderer.mjs
           node --check src/game.mjs
           node --check src/campaign-ui.mjs
           node --check src/audio.mjs
