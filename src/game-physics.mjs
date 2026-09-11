@@ -4,6 +4,14 @@ export function shouldShowTrajectory(shot) {
   return shot?.type === 'guide';
 }
 
+export function shortAimSegment({ x, y, angle, length = 36, startOffset = 12 }) {
+  const dx = Math.cos(angle);
+  const dy = Math.sin(angle);
+  const start = { x: x + dx * startOffset, y: y + dy * startOffset };
+  const end = { x: start.x + dx * length, y: start.y + dy * length };
+  return { start, end };
+}
+
 export function clampAimAngle(angle) {
   return Math.max(-Math.PI + 0.18, Math.min(-0.18, angle));
 }
