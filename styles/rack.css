@@ -1,0 +1,45 @@
+/* Next-orb rack lives inside the canvas. Keep the DOM queue only as hidden state for existing UI wiring. */
+.shot-queue-wrap {
+  display: none !important;
+}
+
+.playfield-hud-bottom {
+  min-height: 46px;
+  grid-template-columns: 1fr auto 1fr;
+  padding-block: 5px;
+}
+
+.run-stats-inline {
+  grid-column: 2;
+  justify-self: center;
+}
+
+.boss-meter {
+  grid-column: 3;
+  justify-self: end;
+}
+
+@media (max-width: 720px) {
+  .playfield-hud-bottom {
+    min-height: 44px;
+    grid-template-columns: 1fr auto 1fr;
+  }
+
+  .run-stats-inline {
+    grid-column: 2;
+  }
+
+  .boss-meter {
+    grid-column: 3;
+    padding: 0 0 0 8px;
+    border-top: 0;
+    border-left: 1px solid rgba(27, 52, 72, .18);
+  }
+}
+
+@media (max-width: 410px) {
+  .playfield-hud-bottom {
+    grid-template-columns: 1fr auto 1fr;
+    padding-inline: 4px;
+  }
+}
