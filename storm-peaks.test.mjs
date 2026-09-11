@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import {
   SHOT_SPEED,
@@ -142,4 +143,16 @@ const bounds = { minX: 12, maxX: 228 };
   );
 }
 
-console.log('✓ Storm Peaks Tasks 1-4: wind, lightning, and deep objective contracts');
+{
+  const renderer = await fs.readFile(new URL('./src/game-renderer.mjs', import.meta.url), 'utf8');
+  const windRenderer = await fs.readFile(new URL('./src/wind-renderer.mjs', import.meta.url), 'utf8');
+  const audio = await fs.readFile(new URL('./src/audio.mjs', import.meta.url), 'utf8');
+  assert(renderer.includes('drawCloudBand'), 'renderer should expose layered natural cloud bands');
+  assert(renderer.includes('drawLightningBolt'), 'renderer should draw the gameplay lightning strike');
+  assert(renderer.includes('segment.points'), 'short aim should draw simulated curved points, not just a straight chord');
+  assert(windRenderer.includes('drawGlobalWind'), 'wind renderer should expose whole-board wind feedback');
+  assert(!windRenderer.includes('zone.width'), 'global wind presentation should not paint rectangular corridor zones');
+  assert(audio.includes('lightning()'), 'audio should have a dedicated procedural lightning cue');
+}
+
+console.log('✓ Storm Peaks Tasks 1-5 contracts');
