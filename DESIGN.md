@@ -12,6 +12,19 @@ A calm, family-friendly precision puzzle game. The player should feel like they 
 
 **Material language:** painted sky, paper-map labels, rope/stitched route details, soft cloud layers, polished balloon sprites. Avoid glassmorphism, neon sci-fi, dense card grids, casino effects, and generic SaaS panels.
 
+**Micro-illustration rule:** objective objects and special shots use small bespoke vector illustrations (bird rescue, collectible star, anchor, bomb, rainbow) rather than emoji or font glyphs. They should read at balloon scale and share the same rounded, toy-like line language.
+
+## World identity
+
+The three campaign worlds must be visually recognizable even with the HUD hidden:
+
+- **Łąka Balonów:** warm sun, blue sky, soft green hill layers; calm and tutorial-like.
+- **Wyspy Chmur:** brighter high-altitude blue, drifting cloud masses and open air; emphasizes bank shots and space.
+- **Las Wiatru:** green/teal atmosphere, layered tree silhouettes, moving wind lines and leaves; more tension and movement.
+- **Strażnik Burzy:** uses the Las Wiatru language with an additional storm-darkening layer, never a wholly unrelated boss theme.
+
+Gameplay balloon colors stay stable across worlds for readability.
+
 ## Palette
 
 - Sky deep: `#3178B8`
@@ -41,14 +54,42 @@ No remote font dependency. Use a deliberate system stack:
 - Desktop game layout: side information rails + central canvas.
 - Mobile game layout: compact top objective strip, full-width canvas, bottom queue/actions.
 - Campaign map: open layout with a winding route; do not convert levels into a uniform card grid.
+- Header progress may show stars and mastery, but it must stay compact enough to preserve the brand and classic-mode access at 390px.
+
+## Mastery system
+
+Mastery is **skill proof, not currency**. It does not buy boosters and does not gate campaign progression.
+
+Each level has three persistent mastery marks:
+
+- **Bank Shot** — make at least one successful scoring shot after a wall bounce.
+- **Avalanche** — drop at least 6 balloons with one shot.
+- **Perfect Aim** — finish the level with 0 misses.
+
+Mastery marks persist independently from stars and best score. Map nodes show compact marks; the result dialog explains the three conditions and highlights newly earned marks. Never turn mastery into a daily-task checklist or reward-economy layer.
 
 ## Component rules
 
 - Primary buttons: solid cloud/ink contrast, strong label, subtle lift on hover.
 - Secondary buttons: low-emphasis outline or text treatment.
-- Level nodes: circular or balloon-like, with stars below; locked nodes use shape + icon, not color alone.
+- Level nodes: circular or balloon-like, with stars and three compact mastery marks below; locked nodes use shape + icon, not color alone.
 - Dialogs: app-owned modal with focusable controls; never browser `alert`/`confirm`.
 - Focus: visible 3px focus ring with strong contrast.
+- Special-shot badges should be vector/CSS art, not Unicode symbols pretending to be production icons.
+
+## Audio
+
+Audio is lightweight, responsive feedback rather than a soundtrack dependency. Procedural WebAudio tones are acceptable for this prototype and should reinforce:
+
+- shot launch;
+- wall bounce;
+- pop/cascade size;
+- rescue, collectible and anchor resolution;
+- ceiling pressure;
+- boss phase changes;
+- win/loss.
+
+Sound preference persists locally and defaults to on. Audio must never block gameplay when the browser disallows or lacks WebAudio.
 
 ## Motion
 
@@ -61,7 +102,8 @@ Use motion for cause and effect:
 - detached cluster falling;
 - rescued-object lift;
 - combo callout;
-- world-map route reveal.
+- world-map route reveal;
+- newly earned mastery reveal.
 
 Do not animate every HUD element. Respect `prefers-reduced-motion`.
 
