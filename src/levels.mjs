@@ -25,9 +25,19 @@ const FOREST_WINDS = {
   ],
 };
 
+// Projectile speed returns to the original Balloon tempo. Wind is acceleration,
+// so preserving a similar visible bend across the same distance needs roughly v² compensation.
+const WIND_FORCE_SCALE = (460 / 285) ** 2;
+
 function windZonesFor(config) {
   if (Array.isArray(config.windZones)) return config.windZones;
-  return FOREST_WINDS[config.id] ? FOREST_WINDS[config.id].map((zone) => ({ ...zone })) : [];
+  return FOREST_WINDS[config.id]
+    ? FOREST_WINDS[config.id].map((zone) => ({
+      ...zone,
+      forceX: Math.round((zone.forceX || 0) * WIND_FORCE_SCALE),
+      forceY: Math.round((zone.forceY || 0) * WIND_FORCE_SCALE),
+    }))
+    : [];
 }
 
 function level(config) {
@@ -45,9 +55,9 @@ function level(config) {
 }
 
 export const WORLDS = [
-  { id: 'meadow', name: 'Łąka Balonów', subtitle: 'Nauka precyzji', icon: '🌼', atmosphere: 'meadow' },
-  { id: 'clouds', name: 'Wyspy Chmur', subtitle: 'Odbicia i ratunek', icon: '☁️', atmosphere: 'clouds' },
-  { id: 'forest', name: 'Las Wiatru', subtitle: 'Kotwice i ryzyko', icon: '🍃', atmosphere: 'forest' },
+  { id: 'meadow', name: 'Zielone Wzgórza', subtitle: 'Pierwsze układy', icon: '🌼', atmosphere: 'meadow' },
+  { id: 'clouds', name: 'Wyspy Chmur', subtitle: 'Ryzyko i ratunek', icon: '☁️', atmosphere: 'clouds' },
+  { id: 'forest', name: 'Las Wiatru', subtitle: 'Prądy i kotwice', icon: '🍃', atmosphere: 'forest' },
 ];
 
 export const LEVELS = [
@@ -56,14 +66,14 @@ export const LEVELS = [
     objective: { type: 'clear' }, maxShots: 18, shotsPerDrop: 9,
     starThresholds: [0, 550, 900],
     pattern: ['1122334455', '112233445', '..........'],
-    hint: 'Łącz co najmniej trzy balony tego samego koloru.',
+    hint: 'Łącz co najmniej trzy kulki tego samego koloru.',
   }),
   level({
     id: 'meadow-02', world: 'meadow', number: 2, name: 'Rykoszet',
     objective: { type: 'clear' }, maxShots: 20, shotsPerDrop: 9,
-    starThresholds: [0, 700, 1200],
+    starThresholds: [0, 700, 1200], specials: ['guide'],
     pattern: ['111..222..', '.1....2..', '33....44..', '.3....4..'],
-    hint: 'Ściany są częścią zagadki — użyj odbicia.',
+    hint: 'Ściany są częścią układu.',
   }),
   level({
     id: 'meadow-03', world: 'meadow', number: 3, name: 'Słabe ogniwo',
@@ -78,7 +88,7 @@ export const LEVELS = [
     starThresholds: [0, 1050, 1650],
     optional: { type: 'shots-left', amount: 5, label: 'Zostało 5 strzałów' },
     pattern: ['1122334455', '122334455', '1122334455', '.2.3.4.5.', '..223344..'],
-    hint: 'Planowanie dwóch następnych kolorów oszczędza strzały.',
+    hint: 'Planowanie kolejnych kolorów oszczędza strzały.',
   }),
   level({
     id: 'meadow-05', world: 'meadow', number: 5, name: 'Ptaszek w opałach',
@@ -86,7 +96,7 @@ export const LEVELS = [
     starThresholds: [0, 1150, 1800],
     pattern: ['1112223334', '.1.2.3.4.', '..12224...', '...555....', '...555....'],
     objects: [{ id: 'bird-1', type: 'captive', at: [4, 4] }],
-    hint: 'Uwolnij ptaszka, odcinając gałąź pod jego klatką.',
+    hint: 'Uwolnij ptaszka, odcinając podporę pod klatką.',
   }),
   level({
     id: 'clouds-01', world: 'clouds', number: 6, name: 'Dwa skrzydła',
@@ -97,14 +107,14 @@ export const LEVELS = [
       { id: 'bird-2', type: 'captive', at: [2, 4] },
       { id: 'bird-3', type: 'captive', at: [6, 4] },
     ],
-    hint: 'Nie musisz czyścić wszystkiego — ratuj obie strony.',
+    hint: 'Nie musisz czyścić wszystkiego.',
   }),
   level({
     id: 'clouds-02', world: 'clouds', number: 7, name: 'Bomba w chmurach',
     objective: { type: 'clear' }, maxShots: 24, shotsPerDrop: 7,
     starThresholds: [0, 1450, 2200], specials: ['bomb'],
     pattern: ['1112223334', '122233344', '1122334455', '.22334455', '..334455..'],
-    hint: 'Bomba czyści mały obszar. Zachowaj ją na gęsty węzeł.',
+    hint: 'Bomba czyści mały obszar.',
   }),
   level({
     id: 'clouds-03', world: 'clouds', number: 8, name: 'Fałszywa droga',
@@ -123,34 +133,34 @@ export const LEVELS = [
       { id: 'star-2', type: 'collectible', at: [4, 4] },
       { id: 'star-3', type: 'collectible', at: [7, 2] },
     ],
-    hint: 'Zrzuć trzy gwiazdy do koszyka pod planszą.',
+    hint: 'Zrzuć trzy gwiazdy.',
   }),
   level({
     id: 'clouds-05', world: 'clouds', number: 10, name: 'Bank Shot',
     objective: { type: 'rescue', amount: 1 }, maxShots: 22, shotsPerDrop: 6,
-    starThresholds: [0, 1750, 2600],
+    starThresholds: [0, 1750, 2600], specials: ['guide'],
     optional: { type: 'accuracy', maxMisses: 1, label: 'Maks. 1 pudło' },
     pattern: ['1111..2222', '1.3...3.2', '1..333..2', '.4.3.3.4.', '..45554...'],
     objects: [{ id: 'bird-4', type: 'captive', at: [4, 4] }],
-    hint: 'Bez odbicia trudno dotrzeć pod boczną osłonę.',
+    hint: 'Boczna osłona premiuje odbicie.',
   }),
   level({
     id: 'forest-01', world: 'forest', number: 11, name: 'Pierwszy podmuch',
     objective: { type: 'survive', amount: 8 }, maxShots: 18, shotsPerDrop: 5,
     starThresholds: [0, 1300, 2050],
     pattern: ['1122334455', '.12233445', '..223344..', '...3344..'],
-    hint: 'Strzał zakrzywia się w jasnym korytarzu wiatru. Podgląd pokazuje prawdziwy tor.',
+    hint: 'Wiatr zmienia tor strzału.',
   }),
   level({
     id: 'forest-02', world: 'forest', number: 12, name: 'Dwie kotwice',
     objective: { type: 'anchors', amount: 2 }, maxShots: 24, shotsPerDrop: 5,
-    starThresholds: [0, 1750, 2650],
+    starThresholds: [0, 1750, 2650], specials: ['guide'],
     pattern: ['1112223334', '.1.2.3.4.', '5512233445', '.5.2.3.4.', '..555444..'],
     objects: [
       { id: 'anchor-1', type: 'anchor', at: [1, 0] },
       { id: 'anchor-2', type: 'anchor', at: [7, 0] },
     ],
-    hint: 'Dwa przeciwne prądy tworzą środkową martwą strefę. Wybierz stronę podejścia.',
+    hint: 'Dwa przeciwne prądy tworzą środkową martwą strefę.',
   }),
   level({
     id: 'forest-03', world: 'forest', number: 13, name: 'Tęczowy ratunek',
@@ -161,20 +171,20 @@ export const LEVELS = [
       { id: 'bird-5', type: 'captive', at: [2, 4] },
       { id: 'bird-6', type: 'captive', at: [6, 4] },
     ],
-    hint: 'Tęcza dopasuje się do koloru, ale wiatr zmienia miejsce trafienia — planuj oba naraz.',
+    hint: 'Tęcza dopasuje się do koloru.',
   }),
   level({
     id: 'forest-04', world: 'forest', number: 14, name: 'Bez marginesu',
     objective: { type: 'clear' }, maxShots: 22, shotsPerDrop: 4,
-    starThresholds: [0, 2100, 3100],
+    starThresholds: [0, 2100, 3100], specials: ['guide'],
     optional: { type: 'accuracy', maxMisses: 1, label: 'Maks. 1 pudło' },
     pattern: ['1122334455', '122334455', '6611223344', '.61223345', '..661155..', '...6555...'],
-    hint: 'Przeciwne prądy i mały margines błędu premiują rykoszety oraz duże odcięcia.',
+    hint: 'Przeciwne prądy zostawiają mały margines błędu.',
   }),
   level({
     id: 'forest-05', world: 'forest', number: 15, name: 'Strażnik Burzy',
     objective: { type: 'anchors', amount: 3 }, maxShots: 30, shotsPerDrop: 4,
-    starThresholds: [0, 2800, 4200], boss: true, specials: ['bomb', 'rainbow'],
+    starThresholds: [0, 2800, 4200], boss: true, specials: ['guide', 'bomb', 'rainbow'],
     optional: { type: 'shots-left', amount: 4, label: 'Zostały 4 strzały' },
     pattern: ['1112223334', '511223344', '5511223344', '.56622334', '..666555..', '...6555...'],
     objects: [
@@ -182,7 +192,7 @@ export const LEVELS = [
       { id: 'anchor-mid', type: 'anchor', at: [4, 0] },
       { id: 'anchor-right', type: 'anchor', at: [7, 0] },
     ],
-    hint: 'Dwie warstwy burzy pchają w przeciwne strony. Po każdej kotwicy sufit przyspiesza.',
+    hint: 'Po każdej kotwicy sufit przyspiesza.',
   }),
 ];
 
