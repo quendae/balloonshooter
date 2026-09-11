@@ -27,7 +27,7 @@ async function verifyPixelContract(page, name) {
   assert(contract.nodeRadius === '2px', `${name}: level nodes should use the pixel-art 2px radius, got ${contract.nodeRadius}`);
   assert(contract.frameRadius === '2px', `${name}: playfield frame should use the pixel-art 2px radius, got ${contract.frameRadius}`);
   assert(contract.frameBorder === '4px', `${name}: playfield frame should use a 4px retro border, got ${contract.frameBorder}`);
-  assert(['pixelated', 'crisp-edges'].includes(contract.canvasRendering), `${name}: canvas should request pixelated rendering, got ${contract.canvasRendering}`);
+  assert(contract.canvasRendering === 'auto', `${name}: gameplay canvas should smooth the classic balloon assets, got ${contract.canvasRendering}`);
   assert(contract.buttonRadius === '2px', `${name}: buttons should use the pixel-art 2px radius, got ${contract.buttonRadius}`);
 }
 
