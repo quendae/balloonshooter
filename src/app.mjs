@@ -27,6 +27,7 @@ const refs = {
   resultMapButton: $('resultMapButton'), retryButton: $('retryButton'), nextButton: $('nextButton'), pauseDialog: $('pauseDialog'),
   pauseMapButton: $('pauseMapButton'), resumeButton: $('resumeButton'),
 };
+const CAMPAIGN_MAX = LEVELS.length * 3;
 
 let progress = loadProgress();
 const audio = new SkyAudio(progress.settings.sound);
@@ -67,7 +68,7 @@ function renderMap() {
   const masteries = totalMasteries(progress);
   refs.totalStars.textContent = String(stars);
   refs.totalMasteries.textContent = String(masteries);
-  refs.campaignProgressBank.setAttribute('aria-label', `${stars} z 45 gwiazdek i ${masteries} z 45 odznak mastery`);
+  refs.campaignProgressBank.setAttribute('aria-label', `${stars} z ${CAMPAIGN_MAX} gwiazdek i ${masteries} z ${CAMPAIGN_MAX} odznak mastery`);
   const next = firstPlayableLevel(LEVELS, progress);
   refs.continueButton.textContent = progress.levels?.[next.id]?.completed ? 'Zagraj ponownie' : `Poziom ${next.number}`;
   refs.continueButton.onclick = () => startLevel(next);
