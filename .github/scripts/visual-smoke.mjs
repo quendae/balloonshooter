@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import { chromium } from 'playwright';
 
 const BASE = 'http://127.0.0.1:4173/index.html';
+const PUBLIC_PREVIEW = 'https://raw.githack.com/quendae/balloonshooter/playable/index.html';
 const STORAGE_KEY = 'balloon-sky-rescue-v1';
 await fs.mkdir('artifacts', { recursive: true });
 
@@ -108,12 +109,33 @@ async function verifyWorldArt(browser) {
   await page.close();
 }
 
+async function verifyPublicPreview(browser) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(`console: ${message.text()}`);
+  });
+
+  const response = await page.goto(PUBLIC_PREVIEW, { waitUntil: 'networkidle', timeout: 45_000 });
+  assert(response?.ok(), `public preview returned HTTP ${response?.status() ?? 'no response'}`);
+  assert((await page.title()).includes('Balloon: Sky Rescue'), 'public preview should expose the Sky Rescue title');
+  assert(await page.locator('.level-node').count() === 15, 'public preview should render all 15 campaign levels');
+  await page.locator('#continueButton').click();
+  await page.waitForTimeout(250);
+  assert(await page.locator('#gameCanvas').isVisible(), 'public preview should open a playable canvas');
+  assert(errors.length === 0, `public preview browser errors:\n${errors.join('\n')}`);
+  await page.screenshot({ path: 'artifacts/public-preview.png', fullPage: true });
+  await page.close();
+}
+
 const browser = await chromium.launch({ headless: true });
 try {
   await verifyPage(browser, 'desktop', { width: 1440, height: 1000 });
   await verifyPage(browser, 'mobile', { width: 390, height: 844 });
   await verifyWorldArt(browser);
-  console.log('OK: desktop/mobile smoke, audio persistence and all world art passed');
+  await verifyPublicPreview(browser);
+  console.log('OK: local desktop/mobile, world art, audio persistence and public playable preview passed');
 } finally {
   await browser.close();
 }
