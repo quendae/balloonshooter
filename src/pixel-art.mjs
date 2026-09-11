@@ -1,3 +1,12 @@
+export const CLASSIC_ORB_PALETTE = [
+  { base: '#ff4455', dark: '#9c1422', light: '#ff9aa5' },
+  { base: '#a05cf0', dark: '#5a2a9c', light: '#cfa8ff' },
+  { base: '#ffd93d', dark: '#b09000', light: '#fff0a0' },
+  { base: '#4cc94c', dark: '#157d2a', light: '#a8f0a0' },
+  { base: '#4da3ff', dark: '#164e9c', light: '#a8d8ff' },
+  { base: '#ff6fb3', dark: '#a32a68', light: '#ffb3d8' },
+];
+
 export const PIXEL_COLORS = [
   null,
   { outline: '#5B2030', body: '#E84B5B', shadow: '#A72F43', highlight: '#FFD7C2' },
@@ -25,87 +34,33 @@ export const BALLOON_BITMAPS = {
 
 const OBJECT_BITMAPS = {
   captive: [
-    '000011110000',
-    '000122221000',
-    '001244421100',
-    '012244442210',
-    '012233342210',
-    '122233342221',
-    '122233342221',
-    '012233342210',
-    '001223322100',
-    '000122221000',
-    '000011110000',
-    '000000000000',
+    '000011110000','000122221000','001244421100','012244442210','012233342210','122233342221',
+    '122233342221','012233342210','001223322100','000122221000','000011110000','000000000000',
   ].join('/'),
   collectible: [
-    '000005000000',
-    '000055500000',
-    '055555555550',
-    '005555555500',
-    '000555555000',
-    '000055550000',
-    '000555555000',
-    '005550555500',
-    '055500055550',
-    '050000000050',
-    '000000000000',
-    '000000000000',
+    '000005000000','000055500000','055555555550','005555555500','000555555000','000055550000',
+    '000555555000','005550555500','055500055550','050000000050','000000000000','000000000000',
   ].join('/'),
   anchor: [
-    '000001100000',
-    '000012210000',
-    '000001100000',
-    '000001100000',
-    '001111111100',
-    '000001100000',
-    '000001100000',
-    '010001100010',
-    '011001100110',
-    '001111111100',
-    '000111111000',
-    '000000000000',
+    '000001100000','000012210000','000001100000','000001100000','001111111100','000001100000',
+    '000001100000','010001100010','011001100110','001111111100','000111111000','000000000000',
   ].join('/'),
 };
 
 const SPECIAL_BITMAPS = {
   bomb: [
-    '0000006600',
-    '0000066000',
-    '0000110000',
-    '0001111000',
-    '0012222100',
-    '0122332210',
-    '0122222210',
-    '0122222210',
-    '0012222100',
-    '0001111000',
+    '0000006600','0000066000','0000110000','0001111000','0012222100','0122332210','0122222210','0122222210','0012222100','0001111000',
   ].join('/'),
   rainbow: [
-    '0000000000',
-    '0011111100',
-    '0122222210',
-    '1233333321',
-    '2344444432',
-    '3455555543',
-    '4500000054',
-    '5000000005',
-    '0000000000',
-    '0000000000',
+    '0000000000','0011111100','0122222210','1233333321','2344444432','3455555543','4500000054','5000000005','0000000000','0000000000',
   ].join('/'),
 };
 
 export function decodeBitmap(bitmap) {
   const rows = String(bitmap || '').split('/');
   const width = rows[0]?.length || 0;
-  if (!width || rows.some((row) => row.length !== width || /[^0-9]/.test(row))) {
-    throw new Error('Invalid indexed bitmap');
-  }
-  return {
-    width,
-    height: rows.length,
-    pixels: rows.flatMap((row) => [...row].map((value) => Number(value))),
-  };
+  if (!width || rows.some((row) => row.length !== width || /[^0-9]/.test(row))) throw new Error('Invalid indexed bitmap');
+  return { width, height: rows.length, pixels: rows.flatMap((row) => [...row].map((value) => Number(value))) };
 }
 
 const decodedCache = new Map();
@@ -129,6 +84,43 @@ export function drawBitmap(ctx, bitmap, palette, x, y, pixelSize = 1) {
       ctx.fillRect(originX + col * step, originY + row * step, step, step);
     }
   }
+}
+
+function classicOrbPixelRects(color = 1) {
+  const p = CLASSIC_ORB_PALETTE[Math.max(1, Math.min(6, Number(color) || 1)) - 1];
+  const rects = [];
+  const S = 24;
+  const R = 12;
+  const cx = S / 2;
+  const cy = S / 2;
+  for (let py = 0; py < S; py += 1) {
+    for (let px = 0; px < S; px += 1) {
+      const d = Math.hypot(px + 0.5 - cx, py + 0.5 - cy);
+      if (d > R) continue;
+      let fill = p.base;
+      if (d > R - R * 0.16) fill = p.dark;
+      const hc = Math.hypot(px + 0.5 - (cx - R * 0.37), py + 0.5 - (cy - R * 0.43));
+      if (hc < R * 0.28) fill = p.light;
+      if (hc < R * 0.12) fill = '#fff';
+      rects.push({ x: px, y: py, fill });
+    }
+  }
+  return rects;
+}
+
+const classicOrbRectCache = new Map();
+export function classicOrbRects(color = 1) {
+  const key = Math.max(1, Math.min(6, Number(color) || 1));
+  if (!classicOrbRectCache.has(key)) classicOrbRectCache.set(key, classicOrbPixelRects(key));
+  return classicOrbRectCache.get(key);
+}
+
+export function classicOrbDataUri(color = 1) {
+  const rects = classicOrbRects(color)
+    .map(({ x, y, fill }) => `<rect x="${x}" y="${y}" width="1" height="1" fill="${fill}"/>`)
+    .join('');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" shape-rendering="crispEdges">${rects}</svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
 function balloonPalette(color) {
@@ -173,9 +165,19 @@ export function drawPixelSpecial(ctx, type, x, y) {
   if (type === 'bomb') {
     drawBitmap(ctx, SPECIAL_BITMAPS.bomb, { 1: '#121A28', 2: '#303A4A', 3: '#FFFFFF', 6: '#FFD24C' }, x, y, 1);
   } else if (type === 'rainbow') {
-    drawBitmap(ctx, SPECIAL_BITMAPS.rainbow, {
-      1: '#E84B5B', 2: '#F4C542', 3: '#55B95F', 4: '#3E8FE8', 5: '#8B59D5',
-    }, x, y, 1);
+    drawBitmap(ctx, SPECIAL_BITMAPS.rainbow, { 1: '#E84B5B', 2: '#F4C542', 3: '#55B95F', 4: '#3E8FE8', 5: '#8B59D5' }, x, y, 1);
+  } else if (type === 'guide') {
+    ctx.fillStyle = '#F8FCFF';
+    const px = Math.round(x);
+    const py = Math.round(y);
+    ctx.fillRect(px - 11, py - 11, 7, 2);
+    ctx.fillRect(px - 11, py - 11, 2, 7);
+    ctx.fillRect(px + 4, py - 11, 7, 2);
+    ctx.fillRect(px + 9, py - 11, 2, 7);
+    ctx.fillRect(px - 11, py + 9, 7, 2);
+    ctx.fillRect(px - 11, py + 4, 2, 7);
+    ctx.fillRect(px + 4, py + 9, 7, 2);
+    ctx.fillRect(px + 9, py + 4, 2, 7);
   }
 }
 
