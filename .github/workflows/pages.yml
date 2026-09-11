@@ -1,9 +1,8 @@
-name: Deploy Sky Rescue
+name: Deploy Sky Rescue (Pages)
 
+# GitHub Pages must first be enabled in Repository Settings -> Pages -> Source: GitHub Actions.
+# Keeping this workflow manual prevents a disabled Pages site from turning normal PR CI red.
 on:
-  push:
-    branches:
-      - feat/sky-rescue-v1
   workflow_dispatch:
 
 permissions:
