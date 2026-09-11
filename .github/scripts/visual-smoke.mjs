@@ -10,6 +10,27 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+async function verifyPixelContract(page, name) {
+  const contract = await page.evaluate(() => {
+    const node = document.querySelector('.level-node');
+    const frame = document.querySelector('.playfield-frame');
+    const canvas = document.querySelector('#gameCanvas');
+    const button = document.querySelector('.button');
+    return {
+      nodeRadius: node ? getComputedStyle(node).borderRadius : '',
+      frameRadius: frame ? getComputedStyle(frame).borderRadius : '',
+      frameBorder: frame ? getComputedStyle(frame).borderTopWidth : '',
+      canvasRendering: canvas ? getComputedStyle(canvas).imageRendering : '',
+      buttonRadius: button ? getComputedStyle(button).borderRadius : '',
+    };
+  });
+  assert(contract.nodeRadius === '2px', `${name}: level nodes should use the pixel-art 2px radius, got ${contract.nodeRadius}`);
+  assert(contract.frameRadius === '2px', `${name}: playfield frame should use the pixel-art 2px radius, got ${contract.frameRadius}`);
+  assert(contract.frameBorder === '4px', `${name}: playfield frame should use a 4px retro border, got ${contract.frameBorder}`);
+  assert(['pixelated', 'crisp-edges'].includes(contract.canvasRendering), `${name}: canvas should request pixelated rendering, got ${contract.canvasRendering}`);
+  assert(contract.buttonRadius === '2px', `${name}: buttons should use the pixel-art 2px radius, got ${contract.buttonRadius}`);
+}
+
 async function verifyPage(browser, name, viewport) {
   const page = await browser.newPage({ viewport });
   const errors = [];
@@ -23,6 +44,7 @@ async function verifyPage(browser, name, viewport) {
   assert(actualViewport.width === viewport.width && actualViewport.height === viewport.height, `${name}: requested ${viewport.width}x${viewport.height}, got ${actualViewport.width}x${actualViewport.height}`);
   assert(await page.locator('.level-node').count() === 15, `${name}: campaign should render 15 level nodes`);
   assert(await page.locator('#mapScreen').isVisible(), `${name}: map must be visible on boot`);
+  await verifyPixelContract(page, name);
 
   const mapOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   assert(mapOverflow <= 1, `${name}: map has ${mapOverflow}px horizontal overflow`);
@@ -83,7 +105,7 @@ async function verifyWorldArt(browser) {
   const errors = [];
   page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(`console: ${message.text()}`);
+    if (message.type() === 'error') errors.push(`console: ${message.text()}`));
   });
 
   await page.addInitScript(({ key, value }) => localStorage.setItem(key, JSON.stringify(value)), {
@@ -111,8 +133,6 @@ async function verifyWorldArt(browser) {
 
 async function verifyPublicPreview(browser) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-  // rawgit.hack intentionally shows human browsers a one-time anti-phishing confirmation
-  // before HTML. The service documents this cookie as the automation bypass.
   await context.addCookies([{
     name: '__Http-phish', value: '1', url: 'https://rawcdn.githack.com', secure: true, httpOnly: true,
   }]);
@@ -120,7 +140,7 @@ async function verifyPublicPreview(browser) {
   const errors = [];
   page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(`console: ${message.text()}`);
+    if (message.type() === 'error') errors.push(`console: ${message.text()}`));
   });
 
   const response = await page.goto(PUBLIC_PREVIEW, { waitUntil: 'networkidle', timeout: 45_000 });
@@ -141,7 +161,7 @@ try {
   await verifyPage(browser, 'mobile', { width: 390, height: 844 });
   await verifyWorldArt(browser);
   await verifyPublicPreview(browser);
-  console.log('OK: local desktop/mobile, world art, audio persistence and public playable CDN preview passed');
+  console.log('OK: local desktop/mobile pixel UI, world art, audio persistence and public playable CDN preview passed');
 } finally {
   await browser.close();
 }
