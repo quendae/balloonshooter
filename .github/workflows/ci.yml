@@ -39,6 +39,8 @@ jobs:
         run: node storm-content.test.mjs
       - name: Storm Peaks runtime tests
         run: node storm-runtime.test.mjs
+      - name: Storm feedback behavior tests
+        run: node storm-feedback.test.mjs
       - name: Authored level integrity tests
         run: node level-integrity.test.mjs
       - name: JavaScript syntax checks
