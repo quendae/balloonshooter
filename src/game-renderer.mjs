@@ -29,16 +29,37 @@ export function projectileTrailSegments(projectile) {
   }));
 }
 
-function roundedCloud(ctx, x, y, scale = 1, alpha = 1, fill = '#fff') {
+function drawCloudBand(ctx, x, y, width = 78, height = 22, alpha = .7, top = '#ffffff', shadow = '#b9c9d3', lobes = 5) {
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.fillStyle = fill;
+
+  const underside = ctx.createLinearGradient(0, y - height * .2, 0, y + height * .65);
+  underside.addColorStop(0, top);
+  underside.addColorStop(.68, top);
+  underside.addColorStop(1, shadow);
+  ctx.fillStyle = underside;
   ctx.beginPath();
-  ctx.ellipse(x, y, 19 * scale, 8 * scale, 0, 0, Math.PI * 2);
-  ctx.ellipse(x - 13 * scale, y + 2 * scale, 12 * scale, 7 * scale, 0, 0, Math.PI * 2);
-  ctx.ellipse(x + 13 * scale, y + 2 * scale, 13 * scale, 7 * scale, 0, 0, Math.PI * 2);
-  ctx.ellipse(x - 3 * scale, y - 6 * scale, 10 * scale, 10 * scale, 0, 0, Math.PI * 2);
-  ctx.ellipse(x + 8 * scale, y - 4 * scale, 8 * scale, 8 * scale, 0, 0, Math.PI * 2);
+  ctx.ellipse(x, y + height * .18, width * .5, height * .32, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const count = Math.max(3, Math.min(6, Math.round(lobes)));
+  for (let i = 0; i < count; i += 1) {
+    const t = count === 1 ? .5 : i / (count - 1);
+    const offset = (t - .5) * width * .72;
+    const central = 1 - Math.abs(t - .5) * 1.35;
+    const rx = width * (.12 + central * .045);
+    const ry = height * (.32 + central * .18);
+    const cy = y - height * (.08 + central * .24) + (i % 2 ? 1.2 : 0);
+    ctx.fillStyle = underside;
+    ctx.beginPath();
+    ctx.ellipse(x + offset, cy, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.globalAlpha *= .34;
+  ctx.fillStyle = shadow;
+  ctx.beginPath();
+  ctx.ellipse(x + width * .04, y + height * .28, width * .38, height * .12, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }
@@ -74,6 +95,7 @@ function skyPalette(world, timeOfDay) {
   if (timeOfDay === 'dusk') return ['#263d68', '#776b8e', '#d69a78'];
   if (timeOfDay === 'sunset') return ['#5877ad', '#e58f83', '#f4cf8b'];
   if (timeOfDay === 'morning') return ['#64afe3', '#a7d8ed', '#f4e8bd'];
+  if (world === 'storm') return ['#263b56', '#56697a', '#9ca6a5'];
   if (world === 'forest') return ['#467597', '#8db5b1', '#d5d19f'];
   if (world === 'clouds') return ['#59a9e7', '#9ed8f4', '#eef8fb'];
   return ['#4ea9e8', '#9ddaf4', '#f1f3c3'];
@@ -148,13 +170,14 @@ export class GameRenderer {
         this.drawShot(state.projectile, state.projectile.x, state.projectile.y, 1);
       }
 
+      if (state.lightningFx) this.drawLightningBolt(state.lightningFx, time);
       this.drawParticles(state.particles);
     }
     ctx.restore();
 
     if (state?.flash > 0) {
       ctx.save();
-      ctx.fillStyle = `rgba(255,255,255,${Math.min(.28, state.flash)})`;
+      ctx.fillStyle = `rgba(238,248,255,${Math.min(.34, state.flash)})`;
       ctx.fillRect(0, 0, this.B.LW, this.B.LH);
       ctx.restore();
     }
@@ -179,6 +202,7 @@ export class GameRenderer {
 
     if (world === 'meadow') this.drawMeadowBackdrop(time, atmosphere);
     else if (world === 'clouds') this.drawCloudBackdrop(time, atmosphere);
+    else if (world === 'storm') this.drawStormBackdrop(time, atmosphere);
     else this.drawForestBackdrop(time, Boolean(level?.boss), atmosphere);
 
     this.drawAtmosphere(atmosphere, time);
@@ -203,8 +227,8 @@ export class GameRenderer {
       ctx.fillStyle = vignette;
       ctx.fillRect(0, 0, 240, 320);
       if (Math.floor(time / 160) % 23 === 0) {
-        ctx.strokeStyle = 'rgba(240,248,255,.88)';
-        ctx.lineWidth = 1.25;
+        ctx.strokeStyle = 'rgba(240,248,255,.72)';
+        ctx.lineWidth = 1.1;
         ctx.beginPath();
         ctx.moveTo(188, 28); ctx.lineTo(181, 52); ctx.lineTo(187, 52); ctx.lineTo(178, 78);
         ctx.stroke();
@@ -224,10 +248,10 @@ export class GameRenderer {
     ctx.fillStyle = sun;
     ctx.fillRect(sunX - 34, sunY - 34, 68, 68);
 
-    const drift = (time * .0028) % 280;
-    roundedCloud(ctx, -35 + drift, 72, .78, .72);
-    roundedCloud(ctx, 80 + drift * .42, 112, .58, .54);
-    roundedCloud(ctx, 214 - drift * .2, 91, .52, .42);
+    const drift = (time * .0028) % 300;
+    drawCloudBand(ctx, -46 + drift, 70, 78, 20, .62, '#fffdf4', '#cbd8dc', 5);
+    drawCloudBand(ctx, 78 + drift * .34, 111, 58, 15, .44, '#ffffff', '#cbd8dc', 4);
+    drawCloudBand(ctx, 218 - drift * .18, 90, 50, 13, .34, '#ffffff', '#cbd8dc', 4);
 
     hill(ctx, [[0, 235], [38, 214], [74, 228], [116, 205], [160, 227], [201, 210], [240, 225]], '#8ec3d8');
     hill(ctx, [[0, 252], [32, 230], [68, 244], [104, 222], [147, 244], [186, 226], [240, 247]], '#6ea8be');
@@ -251,13 +275,16 @@ export class GameRenderer {
 
   drawCloudBackdrop(time, atmosphere) {
     const ctx = this.ctx;
-    const drift = (time * .002) % 300;
-    const muted = ['overcast', 'rain', 'fog'].includes(atmosphere?.weather);
-    roundedCloud(ctx, -40 + drift, 64, .9, .74, muted ? '#e8eef1' : '#fff');
-    roundedCloud(ctx, 82 + drift * .35, 125, .72, .62, muted ? '#dce7ec' : '#fff');
-    roundedCloud(ctx, 205 - drift * .22, 188, .68, .68, muted ? '#e2eaee' : '#fff');
+    const drift = (time * .002) % 330;
+    const muted = ['overcast', 'rain', 'fog', 'heavy-rain', 'storm'].includes(atmosphere?.weather);
+    const top = muted ? '#e6edf0' : '#fff';
+    const shadow = muted ? '#a8b8c2' : '#c9dae1';
+    drawCloudBand(ctx, -48 + drift, 62, 94, 25, .68, top, shadow, 6);
+    drawCloudBand(ctx, 82 + drift * .31, 122, 76, 20, .54, top, shadow, 5);
+    drawCloudBand(ctx, 212 - drift * .2, 184, 72, 18, .58, top, shadow, 5);
+    drawCloudBand(ctx, 26 + drift * .12, 202, 54, 14, .25, '#f2f5f5', shadow, 4);
 
-    ctx.fillStyle = 'rgba(255,255,255,.5)';
+    ctx.fillStyle = 'rgba(255,255,255,.46)';
     ctx.beginPath();
     ctx.ellipse(48, 252, 35, 13, 0, 0, Math.PI * 2);
     ctx.ellipse(190, 240, 43, 15, 0, 0, Math.PI * 2);
@@ -271,15 +298,16 @@ export class GameRenderer {
 
     const haze = ctx.createLinearGradient(0, 210, 0, 320);
     haze.addColorStop(0, 'rgba(235,249,255,0)');
-    haze.addColorStop(1, 'rgba(235,249,255,.72)');
+    haze.addColorStop(1, 'rgba(235,249,255,.68)');
     ctx.fillStyle = haze;
     ctx.fillRect(0, 210, 240, 110);
   }
 
   drawForestBackdrop(time, boss, atmosphere) {
     const ctx = this.ctx;
-    roundedCloud(ctx, 46 + Math.sin(time * .0004) * 8, 78, .56, .25, atmosphere?.timeOfDay === 'night' ? '#98a9b8' : '#fff');
-    roundedCloud(ctx, 182 - Math.sin(time * .00035) * 6, 108, .46, .2, atmosphere?.timeOfDay === 'night' ? '#8c9aa8' : '#fff');
+    const night = atmosphere?.timeOfDay === 'night';
+    drawCloudBand(ctx, 48 + Math.sin(time * .0004) * 10, 76, 60, 15, .2, night ? '#9dacb8' : '#eef3f2', night ? '#657788' : '#b8c9ce', 4);
+    drawCloudBand(ctx, 184 - Math.sin(time * .00035) * 7, 107, 52, 13, .17, night ? '#91a0ad' : '#eef3f2', night ? '#607283' : '#b8c9ce', 4);
 
     hill(ctx, [[0, 226], [38, 199], [74, 218], [112, 192], [151, 216], [191, 193], [240, 216]], boss ? '#587377' : '#6d9591');
     hill(ctx, [[0, 251], [30, 225], [70, 244], [111, 219], [151, 245], [194, 220], [240, 242]], boss ? '#355b54' : '#4e7866');
@@ -291,6 +319,20 @@ export class GameRenderer {
     }
     ctx.fillStyle = boss ? '#1f4038' : '#2f5b42';
     ctx.fillRect(0, 278, 240, 42);
+  }
+
+  drawStormBackdrop(time, atmosphere) {
+    const ctx = this.ctx;
+    const drift = (time * .0042) % 340;
+    drawCloudBand(ctx, -65 + drift, 54, 116, 30, .62, '#8997a2', '#465767', 6);
+    drawCloudBand(ctx, 72 + drift * .28, 88, 92, 24, .5, '#96a2aa', '#4c5c69', 6);
+    drawCloudBand(ctx, 214 - drift * .24, 128, 104, 25, .48, '#7d8e99', '#3f5261', 5);
+
+    hill(ctx, [[0, 230], [35, 191], [64, 217], [104, 171], [142, 216], [184, 181], [240, 221]], '#607783');
+    hill(ctx, [[0, 258], [31, 224], [71, 248], [112, 208], [153, 249], [198, 213], [240, 244]], '#3f5965');
+    hill(ctx, [[0, 286], [38, 254], [83, 278], [124, 239], [168, 276], [211, 247], [240, 265]], '#284852');
+    ctx.fillStyle = '#203b43';
+    ctx.fillRect(0, 282, 240, 38);
   }
 
   drawAtmosphere(atmosphere, time) {
@@ -311,10 +353,13 @@ export class GameRenderer {
     }
 
     if (weather === 'clouds' || weather === 'overcast' || weather === 'storm') {
-      const cloudFill = weather === 'storm' ? '#627182' : weather === 'overcast' ? '#aab8c2' : '#e2ebef';
-      const alpha = weather === 'storm' ? .48 : .28 + intensity * .24;
-      roundedCloud(ctx, 48 + Math.sin(time * .00025) * 12, 43, 1.05, alpha, cloudFill);
-      roundedCloud(ctx, 180 - Math.sin(time * .00019) * 10, 78, .92, alpha * .9, cloudFill);
+      const stormy = weather === 'storm';
+      const overcast = weather === 'overcast';
+      const top = stormy ? '#758594' : overcast ? '#b2bec5' : '#e7eef0';
+      const shadow = stormy ? '#3f5060' : overcast ? '#7d8d98' : '#b3c2c8';
+      const alpha = stormy ? .43 : .2 + intensity * .22;
+      drawCloudBand(ctx, 48 + Math.sin(time * .00025) * 13, 41, 96, 24, alpha, top, shadow, 6);
+      drawCloudBand(ctx, 182 - Math.sin(time * .00019) * 11, 78, 82, 20, alpha * .88, top, shadow, 5);
     }
 
     if (weather === 'fog') {
@@ -378,20 +423,24 @@ export class GameRenderer {
 
   drawShortAim(segment, time) {
     const ctx = this.ctx;
+    const points = Array.isArray(segment.points) && segment.points.length ? segment.points : [segment.start, segment.end].filter(Boolean);
+    if (points.length < 2) return;
     const pulse = .64 + Math.sin(time * .008) * .08;
     ctx.save();
     ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     ctx.strokeStyle = `rgba(248,252,255,${pulse})`;
     ctx.lineWidth = 1.25;
-    ctx.setLineDash([4, 3]);
+    ctx.setLineDash([3, 2.5]);
     ctx.beginPath();
-    ctx.moveTo(segment.start.x, segment.start.y);
-    ctx.lineTo(segment.end.x, segment.end.y);
+    ctx.moveTo(points[0].x, points[0].y);
+    for (const point of points.slice(1)) ctx.lineTo(point.x, point.y);
     ctx.stroke();
     ctx.setLineDash([]);
+    const end = points.at(-1);
     ctx.fillStyle = `rgba(248,252,255,${Math.min(1, pulse + .14)})`;
     ctx.beginPath();
-    ctx.arc(segment.end.x, segment.end.y, 1.5, 0, Math.PI * 2);
+    ctx.arc(end.x, end.y, 1.4, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
@@ -408,6 +457,43 @@ export class GameRenderer {
       ctx.arc(point.x, point.y, r, 0, Math.PI * 2);
       ctx.fill();
     });
+    ctx.restore();
+  }
+
+  drawLightningBolt(fx, time) {
+    if (!fx) return;
+    const ctx = this.ctx;
+    const alpha = Math.max(0, Math.min(1, Number(fx.life) / (Number(fx.maxLife) || 1)));
+    const targetX = Number(fx.x) || this.B.LW / 2;
+    const targetY = Number(fx.y) || 120;
+    const startX = targetX + Math.sin(time * .03 + targetX) * 8;
+    const points = [
+      [startX, -4],
+      [targetX - 7, targetY * .28],
+      [targetX + 5, targetY * .5],
+      [targetX - 3, targetY * .72],
+      [targetX, targetY],
+    ];
+    ctx.save();
+    ctx.lineJoin = 'miter';
+    ctx.lineCap = 'round';
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = 'rgba(122,190,255,.42)';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(points[0][0], points[0][1]);
+    for (const [x, y] of points.slice(1)) ctx.lineTo(x, y);
+    ctx.stroke();
+    ctx.strokeStyle = '#f4fbff';
+    ctx.lineWidth = 1.35;
+    ctx.beginPath();
+    ctx.moveTo(points[0][0], points[0][1]);
+    for (const [x, y] of points.slice(1)) ctx.lineTo(x, y);
+    ctx.stroke();
+    ctx.fillStyle = `rgba(232,247,255,${.28 * alpha})`;
+    ctx.beginPath();
+    ctx.arc(targetX, targetY, 16 * alpha + 3, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 
