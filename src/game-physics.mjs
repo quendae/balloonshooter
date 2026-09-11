@@ -106,10 +106,19 @@ export function shortTrajectoryPreview({
     const rebounded = Math.sign(previousVx) !== Math.sign(next.vx)
       && (next.x === bounds.minX || next.x === bounds.maxX);
     if (rebounded) break;
+
+    const dx = next.x - origin.x;
+    const dy = next.y - origin.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance >= maxDistance) {
+      const scale = distance > 0 ? maxDistance / distance : 0;
+      points.push({ x: origin.x + dx * scale, y: origin.y + dy * scale });
+      break;
+    }
+
     projectile = next;
     points.push({ x: projectile.x, y: projectile.y });
     if (projectile.y <= ceilingY || collides(projectile.x, projectile.y)) break;
-    if (Math.hypot(projectile.x - origin.x, projectile.y - origin.y) >= maxDistance) break;
   }
   return points;
 }
