@@ -1,4 +1,5 @@
 import { isLevelUnlocked, MASTERY_BADGES, MASTERY_IDS } from './sky-rescue-core.mjs';
+import { classicOrbDataUri } from './pixel-art.mjs';
 
 function starsMarkup(count = 0) {
   return `${'★'.repeat(count)}${'☆'.repeat(Math.max(0, 3 - count))}`;
@@ -64,6 +65,13 @@ export function renderCampaignMap(container, worlds, levels, progress, onSelect)
   }
 }
 
+const SHOT_NAMES = {
+  normal: 'zwykła kulka',
+  bomb: 'bomba',
+  rainbow: 'tęcza',
+  guide: 'prowadzenie',
+};
+
 export function renderShotQueue(container, queue) {
   container.replaceChildren();
   queue.forEach((shot, index) => {
@@ -71,8 +79,8 @@ export function renderShotQueue(container, queue) {
     item.className = 'queue-shot';
     item.dataset.type = shot.type;
     item.dataset.color = String(shot.color || 1);
-    item.style.backgroundImage = `url("assets/ball_${shot.color || 1}.png")`;
-    item.setAttribute('aria-label', `${index === 0 ? 'Aktualny' : `Następny ${index}`}: ${shot.type === 'normal' ? `kolor ${shot.color}` : shot.type}`);
+    item.style.backgroundImage = `url("${classicOrbDataUri(shot.color || 1)}")`;
+    item.setAttribute('aria-label', `${index === 0 ? 'Aktualna' : `Następna ${index}`}: ${SHOT_NAMES[shot.type] || shot.type}, kolor ${shot.color || 1}`);
     container.append(item);
   });
 }
