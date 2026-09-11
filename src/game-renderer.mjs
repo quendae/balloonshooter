@@ -17,6 +17,18 @@ export function orbRackLayout(B, projectileActive = false) {
   };
 }
 
+export function projectileTrailSegments(projectile) {
+  const speed = Math.hypot(projectile?.vx || 0, projectile?.vy || 0) || 1;
+  const ux = (projectile?.vx || 0) / speed;
+  const uy = (projectile?.vy || 0) / speed;
+  return [9, 15, 21].map((distance, index) => ({
+    x: projectile.x - ux * distance,
+    y: projectile.y - uy * distance,
+    alpha: .34 - index * .08,
+    radius: 2.2 - index * .45,
+  }));
+}
+
 function roundedCloud(ctx, x, y, scale = 1, alpha = 1) {
   ctx.save();
   ctx.globalAlpha = alpha;
@@ -110,7 +122,10 @@ export class GameRenderer {
     }
 
     this.drawOrbRack(state.queue || [], Boolean(state.projectile));
-    if (state.projectile) this.drawShot(state.projectile, state.projectile.x, state.projectile.y, 1);
+    if (state.projectile) {
+      this.drawProjectileTrail(state.projectile);
+      this.drawShot(state.projectile, state.projectile.x, state.projectile.y, 1);
+    }
 
     this.drawParticles(state.particles);
 
@@ -295,6 +310,19 @@ export class GameRenderer {
       drawPixelSpecial(ctx, shot.type, 0, 0);
       ctx.restore();
     }
+  }
+
+  drawProjectileTrail(projectile) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.fillStyle = '#f7fcff';
+    for (const mark of projectileTrailSegments(projectile)) {
+      ctx.globalAlpha = mark.alpha;
+      ctx.beginPath();
+      ctx.arc(mark.x, mark.y, mark.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   drawOrbRack(queue, projectileActive) {
