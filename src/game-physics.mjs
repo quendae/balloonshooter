@@ -9,12 +9,31 @@ export function toLogicalPoint(clientX, clientY, rect, logicalWidth, logicalHeig
   };
 }
 
-export function stepProjectile(projectile, dt, bounds) {
+export function windAtPoint(windZones = [], x, y) {
+  let forceX = 0;
+  let forceY = 0;
+  for (const zone of windZones || []) {
+    const left = Number(zone.x) || 0;
+    const top = Number(zone.y) || 0;
+    const right = left + Math.max(0, Number(zone.width) || 0);
+    const bottom = top + Math.max(0, Number(zone.height) || 0);
+    if (x < left || x > right || y < top || y > bottom) continue;
+    forceX += Number(zone.forceX) || 0;
+    forceY += Number(zone.forceY) || 0;
+  }
+  return { x: forceX, y: forceY };
+}
+
+export function stepProjectile(projectile, dt, bounds, windZones = []) {
+  const wind = windAtPoint(windZones, projectile.x, projectile.y);
   const next = {
     ...projectile,
-    x: projectile.x + projectile.vx * dt,
-    y: projectile.y + projectile.vy * dt,
+    vx: projectile.vx + wind.x * dt,
+    vy: projectile.vy + wind.y * dt,
   };
+  next.x = projectile.x + next.vx * dt;
+  next.y = projectile.y + next.vy * dt;
+
   if (next.x <= bounds.minX) {
     next.x = bounds.minX;
     next.vx = Math.abs(next.vx);
@@ -32,11 +51,11 @@ export function velocityFromAngle(angle, speed) {
   };
 }
 
-export function trajectoryPoints({ x, y, vx, vy, bounds, ceilingY, steps = 90, step = 0.018, collides }) {
+export function trajectoryPoints({ x, y, vx, vy, bounds, ceilingY, steps = 90, step = 0.018, collides, windZones = [] }) {
   const points = [];
   let projectile = { x, y, vx, vy };
   for (let i = 0; i < steps; i += 1) {
-    projectile = stepProjectile(projectile, step, bounds);
+    projectile = stepProjectile(projectile, step, bounds, windZones);
     points.push({ x: projectile.x, y: projectile.y });
     if (projectile.y <= ceilingY || collides(projectile.x, projectile.y)) break;
   }
