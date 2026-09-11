@@ -22,27 +22,9 @@ function level(config) {
 }
 
 export const WORLDS = [
-  {
-    id: 'meadow',
-    name: 'Łąka Balonów',
-    subtitle: 'Nauka precyzji',
-    icon: '🌼',
-    atmosphere: 'meadow',
-  },
-  {
-    id: 'clouds',
-    name: 'Wyspy Chmur',
-    subtitle: 'Odbicia i ratunek',
-    icon: '☁️',
-    atmosphere: 'clouds',
-  },
-  {
-    id: 'forest',
-    name: 'Las Wiatru',
-    subtitle: 'Kotwice i ryzyko',
-    icon: '🍃',
-    atmosphere: 'forest',
-  },
+  { id: 'meadow', name: 'Łąka Balonów', subtitle: 'Nauka precyzji', icon: '🌼', atmosphere: 'meadow' },
+  { id: 'clouds', name: 'Wyspy Chmur', subtitle: 'Odbicia i ratunek', icon: '☁️', atmosphere: 'clouds' },
+  { id: 'forest', name: 'Las Wiatru', subtitle: 'Kotwice i ryzyko', icon: '🍃', atmosphere: 'forest' },
 ];
 
 export const LEVELS = [
@@ -83,7 +65,6 @@ export const LEVELS = [
     objects: [{ id: 'bird-1', type: 'captive', at: [4, 4] }],
     hint: 'Uwolnij ptaszka, odcinając gałąź pod jego klatką.',
   }),
-
   level({
     id: 'clouds-01', world: 'clouds', number: 6, name: 'Dwa skrzydła',
     objective: { type: 'rescue', amount: 2 }, maxShots: 25, shotsPerDrop: 7,
@@ -126,11 +107,10 @@ export const LEVELS = [
     objective: { type: 'rescue', amount: 1 }, maxShots: 22, shotsPerDrop: 6,
     starThresholds: [0, 1750, 2600],
     optional: { type: 'accuracy', maxMisses: 1, label: 'Maks. 1 pudło' },
-    pattern: ['1111..2222', '1.......2', '1..333..2', '.4.3.3.4.', '..45554...'],
+    pattern: ['1111..2222', '1.3...3.2', '1..333..2', '.4.3.3.4.', '..45554...'],
     objects: [{ id: 'bird-4', type: 'captive', at: [4, 4] }],
     hint: 'Bez odbicia trudno dotrzeć pod boczną osłonę.',
   }),
-
   level({
     id: 'forest-01', world: 'forest', number: 11, name: 'Pierwszy podmuch',
     objective: { type: 'survive', amount: 8 }, maxShots: 18, shotsPerDrop: 5,
