@@ -1,0 +1,60 @@
+.world-section[data-world="storm"] {
+  --world-accent: #667789;
+}
+
+.world-section[data-world="storm"]::before {
+  background:
+    repeating-linear-gradient(90deg, rgba(255,255,255,.035) 0 8px, transparent 8px 16px),
+    linear-gradient(180deg, #a8b2b8 0 22%, #7f8e99 22% 58%, #596c78 58% 100%);
+}
+
+.world-section[data-world="storm"]::after {
+  background: #455965;
+  opacity: .3;
+}
+
+.world-section[data-world="storm"] .world-heading p,
+.world-section[data-world="storm"] .level-name {
+  color: #294251;
+}
+
+.world-icon-storm {
+  background: #d8e4ea;
+  border-color: #293d5a;
+}
+
+.world-icon-storm > span {
+  position: relative;
+  left: auto;
+  top: auto;
+  width: 28px;
+  height: 9px;
+  background: #627586;
+  box-shadow: 6px -7px 0 #8998a3, 12px 0 0 #627586 !important;
+}
+
+.world-icon-storm > span::before {
+  content: "";
+  position: absolute;
+  display: block;
+  left: 10px;
+  top: 8px;
+  width: 9px;
+  height: 20px;
+  background: #f2c34c;
+  clip-path: polygon(42% 0, 100% 0, 66% 39%, 100% 39%, 18% 100%, 43% 56%, 5% 56%);
+}
+
+.world-icon-storm > span::after {
+  display: none;
+}
+
+.world-section[data-world="storm"] .level-route::before {
+  background: repeating-linear-gradient(90deg, #52697a 0 8px, transparent 8px 14px);
+}
+
+@media (max-width: 760px) {
+  .world-section[data-world="storm"] .level-route::before {
+    background: repeating-linear-gradient(180deg, #52697a 0 8px, transparent 8px 14px);
+  }
+}
