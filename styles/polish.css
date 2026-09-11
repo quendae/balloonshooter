@@ -1,0 +1,269 @@
+.star-bank {
+  align-items: center;
+  gap: 4px;
+}
+.progress-glyph { font-size: 13px; line-height: 1; }
+.progress-glyph-stars { color: #e4a814; }
+.progress-glyph-mastery { color: var(--sky-deep); }
+.bank-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 5px;
+  background: var(--line);
+}
+.sound-button { position: relative; font-size: 18px; }
+.sound-button[data-enabled="false"] { color: #7d8f9e; background: #eef4f7; }
+.sound-button[data-enabled="false"]::after {
+  content: "";
+  position: absolute;
+  width: 22px;
+  height: 2px;
+  border-radius: 2px;
+  background: #6d7e8b;
+  transform: rotate(-42deg);
+}
+
+.world-section[data-world="meadow"]::before {
+  background:
+    radial-gradient(circle at 84% 16%, rgba(255,220,116,.62) 0 7%, transparent 7.5%),
+    radial-gradient(ellipse at 18% 92%, rgba(112,193,113,.44) 0 18%, transparent 18.5%),
+    radial-gradient(ellipse at 65% 96%, rgba(157,215,132,.36) 0 25%, transparent 25.5%),
+    linear-gradient(180deg, rgba(255,255,255,.94), rgba(229,250,255,.82));
+}
+.world-section[data-world="clouds"]::before {
+  background:
+    radial-gradient(ellipse at 18% 25%, rgba(255,255,255,.96) 0 12%, transparent 12.5%),
+    radial-gradient(ellipse at 75% 16%, rgba(255,255,255,.9) 0 15%, transparent 15.5%),
+    radial-gradient(ellipse at 62% 72%, rgba(224,246,255,.8) 0 23%, transparent 23.5%),
+    linear-gradient(180deg, rgba(246,253,255,.96), rgba(213,241,253,.82));
+}
+.world-section[data-world="forest"]::before {
+  background:
+    repeating-linear-gradient(118deg, transparent 0 42px, rgba(66,122,82,.055) 43px 46px, transparent 47px 88px),
+    radial-gradient(ellipse at 12% 88%, rgba(78,142,88,.28) 0 24%, transparent 24.5%),
+    radial-gradient(ellipse at 84% 91%, rgba(62,116,78,.24) 0 26%, transparent 26.5%),
+    linear-gradient(180deg, rgba(247,255,249,.94), rgba(215,239,218,.83));
+}
+
+.world-icon {
+  position: relative;
+  overflow: hidden;
+  font-size: 0;
+}
+.world-icon > span,
+.world-icon > span::before,
+.world-icon > span::after { position: absolute; content: ""; display: block; }
+.world-icon-meadow > span {
+  width: 18px;
+  height: 18px;
+  left: 16px;
+  top: 11px;
+  border-radius: 50%;
+  background: #F5C84C;
+  box-shadow: 0 0 0 5px rgba(245,200,76,.18);
+}
+.world-icon-meadow > span::before {
+  width: 46px;
+  height: 23px;
+  left: -14px;
+  top: 22px;
+  border-radius: 50% 50% 0 0;
+  background: #72B878;
+  transform: rotate(-7deg);
+}
+.world-icon-meadow > span::after {
+  width: 34px;
+  height: 18px;
+  left: 8px;
+  top: 26px;
+  border-radius: 50% 50% 0 0;
+  background: #9FD28B;
+}
+.world-icon-clouds > span {
+  width: 28px;
+  height: 12px;
+  left: 11px;
+  top: 25px;
+  border-radius: 999px;
+  background: #D8F2FF;
+  box-shadow: 0 3px 0 rgba(49,120,184,.08);
+}
+.world-icon-clouds > span::before {
+  width: 18px;
+  height: 18px;
+  left: 4px;
+  top: -9px;
+  border-radius: 50%;
+  background: #B9E7FA;
+}
+.world-icon-clouds > span::after {
+  width: 14px;
+  height: 14px;
+  left: 15px;
+  top: -5px;
+  border-radius: 50%;
+  background: #EEF9FF;
+}
+.world-icon-forest > span {
+  width: 16px;
+  height: 28px;
+  left: 17px;
+  top: 10px;
+  border-radius: 100% 0 100% 0;
+  background: #5D9A69;
+  transform: rotate(35deg);
+}
+.world-icon-forest > span::before {
+  width: 2px;
+  height: 27px;
+  left: 7px;
+  top: 2px;
+  border-radius: 2px;
+  background: rgba(255,255,255,.66);
+  transform: rotate(5deg);
+}
+.world-icon-forest > span::after {
+  width: 20px;
+  height: 3px;
+  left: -2px;
+  top: 13px;
+  border-radius: 99px;
+  background: rgba(255,255,255,.38);
+  transform: rotate(-18deg);
+}
+
+.level-masteries {
+  display: flex;
+  gap: 4px;
+  min-height: 13px;
+}
+.mastery-mark {
+  display: grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  border: 1px solid rgba(23,50,77,.14);
+  border-radius: 4px;
+  color: #a9bac6;
+  background: rgba(255,255,255,.6);
+  font-size: 8px;
+  line-height: 1;
+}
+.mastery-mark.is-earned {
+  color: #fff;
+  background: var(--sky-deep);
+  border-color: transparent;
+  box-shadow: 0 2px 6px rgba(49,120,184,.2);
+}
+.level-stop { gap: 5px; }
+.level-name { margin-top: 1px; }
+
+.queue-shot[data-type="bomb"]::after,
+.queue-shot[data-type="rainbow"]::after { content: ""; }
+.queue-shot[data-type="bomb"]::after {
+  background:
+    radial-gradient(circle at 43% 45%, #fff 0 8%, transparent 9%),
+    radial-gradient(circle, #17324D 0 44%, transparent 45%),
+    linear-gradient(135deg, transparent 45%, #FFD36A 46% 58%, transparent 59%),
+    #fff;
+}
+.queue-shot[data-type="rainbow"]::after {
+  background:
+    radial-gradient(circle, #fff 0 27%, transparent 28%),
+    conic-gradient(#F35D6A 0 20%, #F5C84C 20% 40%, #63B96D 40% 60%, #48A9E6 60% 80%, #9A6FE8 80% 100%);
+}
+
+.result-masteries {
+  display: grid;
+  gap: 7px;
+  margin: 18px 0 4px;
+  text-align: left;
+}
+.mastery-badge {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 50px;
+  padding: 8px 11px;
+  border: 1px solid rgba(23,50,77,.1);
+  border-radius: 14px;
+  color: #8ca0ae;
+  background: #f4f8fa;
+  opacity: .7;
+}
+.mastery-badge-symbol {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: #dfe8ed;
+  font: 850 17px/1 var(--font-display);
+}
+.mastery-badge strong { display: block; font-size: 13px; }
+.mastery-badge small { display: block; margin-top: 2px; font-size: 10px; line-height: 1.3; }
+.mastery-badge.is-earned {
+  color: var(--ink);
+  background: #f3faff;
+  border-color: rgba(49,120,184,.22);
+  opacity: 1;
+}
+.mastery-badge.is-earned .mastery-badge-symbol { color: #fff; background: var(--sky-deep); }
+.mastery-badge.is-new {
+  box-shadow: 0 0 0 2px rgba(255,211,106,.78), 0 8px 20px rgba(33,83,120,.1);
+  animation: mastery-arrive .55s cubic-bezier(.2,.8,.2,1);
+}
+@keyframes mastery-arrive {
+  0% { transform: scale(.96); opacity: .35; }
+  70% { transform: scale(1.015); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.dialog-art {
+  position: relative;
+  width: 66px;
+  height: 42px;
+  margin: 0 auto 12px;
+  font-size: 0;
+}
+.dialog-art::before,
+.dialog-art::after {
+  content: "";
+  position: absolute;
+  background: #dff4ff;
+  border: 1px solid rgba(49,120,184,.16);
+}
+.dialog-art::before {
+  width: 58px;
+  height: 22px;
+  left: 4px;
+  bottom: 2px;
+  border-radius: 999px;
+}
+.dialog-art::after {
+  width: 31px;
+  height: 31px;
+  left: 18px;
+  top: 1px;
+  border-radius: 50%;
+  box-shadow: 16px 6px 0 -5px #dff4ff, -14px 8px 0 -6px #dff4ff;
+}
+
+@media (max-width: 680px) {
+  .star-bank { padding-inline: 8px; }
+  .bank-divider { margin-inline: 2px; }
+  .sound-button { width: 38px; height: 38px; border-radius: 12px; }
+}
+
+@media (max-width: 430px) {
+  .star-bank-max,
+  .bank-divider { display: none; }
+  .star-bank { gap: 3px; min-width: 58px; justify-content: center; }
+  .classic-link { padding-inline: 8px !important; font-size: 11px !important; }
+  .header-actions { gap: 4px; }
+  .result-masteries { gap: 5px; }
+  .mastery-badge { min-height: 44px; grid-template-columns: 31px 1fr; padding: 6px 8px; }
+  .mastery-badge-symbol { width: 30px; height: 30px; border-radius: 9px; }
+  .mastery-badge small { display: none; }
+}
