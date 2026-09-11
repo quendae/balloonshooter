@@ -23,12 +23,13 @@ import {
   velocityFromAngle,
 } from './game-physics.mjs';
 import {
+  chooseDeepObjectiveKeys,
   lightningSpawnPlan,
   shouldTriggerLightning,
   windForResolvedShot,
 } from './storm-core.mjs';
 import { GameRenderer } from './game-renderer.mjs';
-import { drawWindCorridors } from './wind-renderer.mjs';
+import { drawGlobalWind } from './wind-renderer.mjs';
 
 const MIN_AIM_Y = 242;
 const FX_COLORS = ['#000', '#ff4455', '#a05cf0', '#ffd93d', '#4cc94c', '#4da3ff', '#ff6fb3'];
@@ -77,6 +78,24 @@ export class SkyRescueGame {
     this.rng = createSeededRng(this.hashSeed(level.id));
     this.grid = new Map(level.grid.map(({ c, r, color }) => [this.B.key(c, r), color]));
     this.objects = new Map(level.objects.map((object) => [object.at.join(','), { ...object }]));
+    if (Array.isArray(level.objectiveSlots) && ['rescue', 'collect'].includes(this.level.objective.type)) {
+      const eligibleKeys = level.objectiveSlots.map(([c, r]) => this.B.key(c, r));
+      const chosenKeys = chooseDeepObjectiveKeys({
+        grid: this.grid,
+        B: this.B,
+        eligibleKeys,
+        count: this.level.objective.amount || 1,
+        rng: this.rng,
+      });
+      chosenKeys.forEach((key, index) => {
+        const [c, r] = this.B.split(key);
+        this.objects.set(key, {
+          id: `${level.id}-objective-${index + 1}`,
+          type: this.level.objective.type === 'rescue' ? 'captive' : 'collectible',
+          at: [c, r],
+        });
+      });
+    }
     this.queue = [];
     this.particles = [];
     this.falling = [];
@@ -229,9 +248,7 @@ export class SkyRescueGame {
   }
 
   currentWindForAim() {
-    if (this.currentWind) return this.currentWind;
-    if (Array.isArray(this.level?.windZones)) return this.level.windZones;
-    return null;
+    return this.currentWind || null;
   }
 
   shoot() {
@@ -239,9 +256,7 @@ export class SkyRescueGame {
     const shot = this.queue.shift();
     const velocity = velocityFromAngle(this.aimAngle, SHOT_SPEED);
     const activeWind = this.currentWindForAim();
-    const wind = Array.isArray(activeWind)
-      ? activeWind.map((zone) => ({ ...zone }))
-      : { ...(activeWind || { forceX: 0, forceY: 0 }) };
+    const wind = { ...(activeWind || { forceX: 0, forceY: 0 }) };
     this.projectile = { ...shot, x: this.B.LW / 2, y: this.B.LAUNCH_Y, ...velocity, wind };
     this.fillQueue();
     this.callbacks.onShot?.(shot);
@@ -255,7 +270,7 @@ export class SkyRescueGame {
     this.updateEffects(dt);
     const state = this.renderState();
     this.renderer.draw(state, time);
-    drawWindCorridors(this.renderer.ctx, state.level?.windZones || [], time);
+    drawGlobalWind(this.renderer.ctx, state.currentWind, time, this.B);
     this.raf = requestAnimationFrame(this.tick);
   }
 
@@ -374,6 +389,9 @@ export class SkyRescueGame {
     if (this.level.boss && progressDelta && this.level.objective.type === 'anchors') {
       this.currentDropLimit = Math.max(3, this.level.shotsPerDrop - this.anchorsDestroyed);
       this.shotsUntilDrop = Math.min(this.shotsUntilDrop, this.currentDropLimit);
+      if (this.level.storm && this.stormInterval != null) {
+        this.stormInterval = Math.max(2, this.stormInterval - 1);
+      }
       this.callbacks.onBossPhase?.({ current: this.anchorsDestroyed, total: this.level.objective.amount });
     }
 
@@ -470,7 +488,7 @@ export class SkyRescueGame {
   }
 
   shiftCeiling() {
-    if (this.ceilRow >= this.B.MAXROW - 1) return this.fail('Sufit zepchnął planszę poza bezpieczny strefę.');
+    if (this.ceilRow >= this.B.MAXROW - 1) return this.fail('Sufit zepchnął planszę poza bezpieczną strefę.');
     this.B.shiftDown(this.grid);
     this.ceilRow += 1;
     const moved = new Map();
