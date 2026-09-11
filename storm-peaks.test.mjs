@@ -8,6 +8,8 @@ import {
   velocityFromAngle,
 } from './src/game-physics.mjs';
 import {
+  chooseDeepObjectiveKeys,
+  deepObjectiveCandidates,
   lightningSpawnPlan,
   shouldTriggerLightning,
   windForResolvedShot,
@@ -121,4 +123,23 @@ const bounds = { minX: 12, maxX: 228 };
   assert.equal(B.topConnected(grown, 0).size, grown.size, 'lightning additions must stay connected to the ceiling structure');
 }
 
-console.log('✓ Storm Peaks Tasks 1-3: wind and deterministic lightning contracts');
+{
+  const grid = new Map();
+  for (let r = 0; r <= 4; r += 1) {
+    for (let c = 3; c <= 5; c += 1) {
+      if (B.inGrid(c, r)) grid.set(B.key(c, r), 1 + ((c + r) % 3));
+    }
+  }
+  const deepKey = B.key(4, 2);
+  const exposedKey = B.key(4, 4);
+  const candidates = deepObjectiveCandidates({ grid, B, eligibleKeys: [deepKey, exposedKey] });
+  assert(candidates.some((item) => item.key === deepKey), 'a protected middle carrier should qualify as a deep target');
+  assert(!candidates.some((item) => item.key === exposedKey), 'a lowest-row carrier must not qualify while deep choices exist');
+  assert.deepEqual(
+    chooseDeepObjectiveKeys({ grid, B, eligibleKeys: [exposedKey, deepKey], count: 1, rng: () => 0 }),
+    [deepKey],
+    'objective selection should prefer the protected carrier over an exposed front cell',
+  );
+}
+
+console.log('✓ Storm Peaks Tasks 1-4: wind, lightning, and deep objective contracts');
