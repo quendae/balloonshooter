@@ -8,6 +8,28 @@ function cells(pattern) {
   return grid;
 }
 
+const FOREST_WINDS = {
+  'forest-01': [{ x: 18, y: 118, width: 204, height: 78, forceX: 28, forceY: 0 }],
+  'forest-02': [
+    { x: 18, y: 80, width: 88, height: 132, forceX: 34, forceY: 0 },
+    { x: 134, y: 80, width: 88, height: 132, forceX: -34, forceY: 0 },
+  ],
+  'forest-03': [{ x: 42, y: 72, width: 156, height: 152, forceX: -38, forceY: -4 }],
+  'forest-04': [
+    { x: 18, y: 70, width: 96, height: 170, forceX: 42, forceY: 0 },
+    { x: 126, y: 70, width: 96, height: 170, forceX: -42, forceY: 0 },
+  ],
+  'forest-05': [
+    { x: 18, y: 60, width: 204, height: 70, forceX: 44, forceY: -4 },
+    { x: 18, y: 154, width: 204, height: 70, forceX: -48, forceY: 0 },
+  ],
+};
+
+function windZonesFor(config) {
+  if (Array.isArray(config.windZones)) return config.windZones;
+  return FOREST_WINDS[config.id] ? FOREST_WINDS[config.id].map((zone) => ({ ...zone })) : [];
+}
+
 function level(config) {
   return {
     maxShots: 28,
@@ -16,6 +38,7 @@ function level(config) {
     optional: { type: 'accuracy', maxMisses: 2, label: 'Maks. 2 pudła' },
     specials: [],
     objects: [],
+    windZones: windZonesFor(config),
     ...config,
     grid: cells(config.pattern),
   };
@@ -116,7 +139,7 @@ export const LEVELS = [
     objective: { type: 'survive', amount: 8 }, maxShots: 18, shotsPerDrop: 5,
     starThresholds: [0, 1300, 2050],
     pattern: ['1122334455', '.12233445', '..223344..', '...3344..'],
-    hint: 'Przetrwaj osiem tur, zanim konstrukcja zejdzie za nisko.',
+    hint: 'Strzał zakrzywia się w jasnym korytarzu wiatru. Podgląd pokazuje prawdziwy tor.',
   }),
   level({
     id: 'forest-02', world: 'forest', number: 12, name: 'Dwie kotwice',
@@ -127,7 +150,7 @@ export const LEVELS = [
       { id: 'anchor-1', type: 'anchor', at: [1, 0] },
       { id: 'anchor-2', type: 'anchor', at: [7, 0] },
     ],
-    hint: 'Zniszcz oba punkty podparcia — reszta nie jest celem.',
+    hint: 'Dwa przeciwne prądy tworzą środkową martwą strefę. Wybierz stronę podejścia.',
   }),
   level({
     id: 'forest-03', world: 'forest', number: 13, name: 'Tęczowy ratunek',
@@ -138,7 +161,7 @@ export const LEVELS = [
       { id: 'bird-5', type: 'captive', at: [2, 4] },
       { id: 'bird-6', type: 'captive', at: [6, 4] },
     ],
-    hint: 'Tęcza dopasuje się do koloru w miejscu trafienia.',
+    hint: 'Tęcza dopasuje się do koloru, ale wiatr zmienia miejsce trafienia — planuj oba naraz.',
   }),
   level({
     id: 'forest-04', world: 'forest', number: 14, name: 'Bez marginesu',
@@ -146,7 +169,7 @@ export const LEVELS = [
     starThresholds: [0, 2100, 3100],
     optional: { type: 'accuracy', maxMisses: 1, label: 'Maks. 1 pudło' },
     pattern: ['1122334455', '122334455', '6611223344', '.61223345', '..661155..', '...6555...'],
-    hint: 'Każde pudło przybliża sufit. Szukaj odcięć.',
+    hint: 'Przeciwne prądy i mały margines błędu premiują rykoszety oraz duże odcięcia.',
   }),
   level({
     id: 'forest-05', world: 'forest', number: 15, name: 'Strażnik Burzy',
@@ -159,7 +182,7 @@ export const LEVELS = [
       { id: 'anchor-mid', type: 'anchor', at: [4, 0] },
       { id: 'anchor-right', type: 'anchor', at: [7, 0] },
     ],
-    hint: 'Boss ma trzy kotwice. Po każdej fazie sufit przyspiesza.',
+    hint: 'Dwie warstwy burzy pchają w przeciwne strony. Po każdej kotwicy sufit przyspiesza.',
   }),
 ];
 
