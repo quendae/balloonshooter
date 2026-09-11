@@ -144,7 +144,7 @@ async function verifyPublicPreview(browser) {
   const errors = [];
   page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(`console: ${message.text()}`));
+    if (message.type() === 'error') errors.push(`console: ${message.text()}`);
   });
 
   const response = await page.goto(PUBLIC_PREVIEW, { waitUntil: 'networkidle', timeout: 45_000 });
