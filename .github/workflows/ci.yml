@@ -35,6 +35,8 @@ jobs:
         run: node gameplay-polish.test.mjs
       - name: Storm Peaks tests
         run: node storm-peaks.test.mjs
+      - name: Storm Peaks content tests
+        run: node storm-content.test.mjs
       - name: Authored level integrity tests
         run: node level-integrity.test.mjs
       - name: JavaScript syntax checks
@@ -44,6 +46,7 @@ jobs:
           node --check src/levels.mjs
           node --check src/save.mjs
           node --check src/game-physics.mjs
+          node --check src/storm-core.mjs
           node --check src/pixel-art.mjs
           node --check src/game-renderer.mjs
           node --check src/wind-renderer.mjs
