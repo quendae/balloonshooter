@@ -1,36 +1,47 @@
-import {
-  WORLD_PIXEL_PALETTES,
-  drawPixelLauncher,
-  drawPixelObject,
-  drawPixelSpecial,
-} from './pixel-art.mjs';
+import { classicOrbRects, drawPixelObject, drawPixelSpecial } from './pixel-art.mjs';
 
-const COLORS = ['#000', '#F35D6A', '#F5C84C', '#48A9E6', '#63B96D', '#9A6FE8', '#F18A3D'];
 const RENDER_SCALE = 3;
 
-function snap(value) {
-  return Math.round(value);
+function snap(value) { return Math.round(value); }
+
+function roundedCloud(ctx, x, y, scale = 1, alpha = 1) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.ellipse(x, y, 19 * scale, 8 * scale, 0, 0, Math.PI * 2);
+  ctx.ellipse(x - 13 * scale, y + 2 * scale, 12 * scale, 7 * scale, 0, 0, Math.PI * 2);
+  ctx.ellipse(x + 13 * scale, y + 2 * scale, 13 * scale, 7 * scale, 0, 0, Math.PI * 2);
+  ctx.ellipse(x - 3 * scale, y - 6 * scale, 10 * scale, 10 * scale, 0, 0, Math.PI * 2);
+  ctx.ellipse(x + 8 * scale, y - 4 * scale, 8 * scale, 8 * scale, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
-function pixelCloud(ctx, x, y, scale = 1, color = '#FFFFFF') {
-  const s = Math.max(1, Math.round(scale * 2));
-  const blocks = [
-    [2, 1, 5, 2], [1, 2, 8, 2], [0, 3, 10, 2], [2, 0, 3, 2], [6, 1, 2, 2],
-  ];
-  ctx.fillStyle = color;
-  for (const [bx, by, bw, bh] of blocks) {
-    ctx.fillRect(snap(x + bx * s), snap(y + by * s), bw * s, bh * s);
+function hill(ctx, points, fill) {
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length; i += 1) {
+    const [x, y] = points[i];
+    const [px, py] = points[i - 1];
+    ctx.quadraticCurveTo((px + x) / 2, py, x, y);
   }
+  ctx.lineTo(240, 320);
+  ctx.lineTo(0, 320);
+  ctx.closePath();
+  ctx.fill();
 }
 
-function pixelTree(ctx, x, groundY, scale = 1, leaf = '#355A48', trunk = '#70482D') {
-  const s = Math.max(1, Math.round(scale));
+function tree(ctx, x, y, scale = 1, leaf = '#376f55', trunk = '#76563b') {
   ctx.fillStyle = trunk;
-  ctx.fillRect(snap(x - 2 * s), snap(groundY - 14 * s), 4 * s, 14 * s);
+  ctx.fillRect(x - 1.2 * scale, y - 10 * scale, 2.4 * scale, 10 * scale);
   ctx.fillStyle = leaf;
-  ctx.fillRect(snap(x - 8 * s), snap(groundY - 24 * s), 16 * s, 6 * s);
-  ctx.fillRect(snap(x - 6 * s), snap(groundY - 30 * s), 12 * s, 7 * s);
-  ctx.fillRect(snap(x - 3 * s), snap(groundY - 35 * s), 6 * s, 6 * s);
+  ctx.beginPath();
+  ctx.arc(x, y - 13 * scale, 5 * scale, 0, Math.PI * 2);
+  ctx.arc(x - 3.5 * scale, y - 10 * scale, 4 * scale, 0, Math.PI * 2);
+  ctx.arc(x + 3.5 * scale, y - 10 * scale, 4 * scale, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 export class GameRenderer {
@@ -38,34 +49,41 @@ export class GameRenderer {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.B = B;
-    this.images = new Map();
+    this.orbSprites = new Map();
     canvas.width = B.LW * RENDER_SCALE;
     canvas.height = B.LH * RENDER_SCALE;
     this.ctx.setTransform(RENDER_SCALE, 0, 0, RENDER_SCALE, 0, 0);
-    this.ctx.imageSmoothingEnabled = false;
+    this.ctx.imageSmoothingEnabled = true;
+    for (let color = 1; color <= 6; color += 1) this.orbSprites.set(color, this.makeOrbSprite(color));
+  }
 
-    for (let color = 1; color <= 6; color += 1) {
-      const image = new Image();
-      image.src = `assets/ball_${color}.png`;
-      this.images.set(color, image);
+  makeOrbSprite(color) {
+    const sprite = document.createElement('canvas');
+    sprite.width = 24;
+    sprite.height = 24;
+    const g = sprite.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    for (const { x, y, fill } of classicOrbRects(color)) {
+      g.fillStyle = fill;
+      g.fillRect(x, y, 1, 1);
     }
+    return sprite;
   }
 
   draw(state, time = 0) {
     const ctx = this.ctx;
-    ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, this.B.LW, this.B.LH);
     this.drawSky(state?.level, time);
     if (!state?.level) return;
 
     this.drawCeiling(state.ceilRow);
-    if (!state.projectile && state.status === 'playing' && !state.paused) this.drawAim(state.trajectory || []);
+    if (!state.projectile && state.status === 'playing' && !state.paused && state.trajectory?.length) this.drawAim(state.trajectory, time);
 
     for (const [key, color] of state.grid) {
       const [c, r] = this.B.split(key);
       const x = this.B.colX(c, r);
       const y = this.B.rowY(r);
-      this.drawBalloon(color, x, y, 1);
+      this.drawOrb(color, x, y, 1);
       const object = state.objects.get(key);
       if (object) this.drawObject(object, x, y, time);
     }
@@ -74,180 +92,200 @@ export class GameRenderer {
       ctx.save();
       ctx.translate(item.x, item.y);
       ctx.rotate(item.rot);
-      this.drawBalloon(item.color, 0, 0, 0.92);
+      this.drawOrb(item.color, 0, 0, .92);
       ctx.restore();
     }
 
     if (state.projectile) this.drawShot(state.projectile, state.projectile.x, state.projectile.y, time);
     else if (state.queue[0]) this.drawShot(state.queue[0], this.B.LW / 2, this.B.LAUNCH_Y, time);
 
-    this.drawLauncher();
     this.drawParticles(state.particles);
 
     if (state.paused) {
-      ctx.fillStyle = 'rgba(11,24,39,.55)';
+      ctx.fillStyle = 'rgba(9, 22, 34, .48)';
       ctx.fillRect(0, 0, this.B.LW, this.B.LH);
-      ctx.fillStyle = 'rgba(255,255,255,.14)';
-      for (let y = 0; y < this.B.LH; y += 6) ctx.fillRect(0, y, this.B.LW, 2);
     }
   }
 
   drawSky(level, time) {
     const ctx = this.ctx;
     const world = level?.world || 'meadow';
-    const palette = WORLD_PIXEL_PALETTES[world] || WORLD_PIXEL_PALETTES.meadow;
-    const split = world === 'forest' ? 152 : 174;
-
-    ctx.fillStyle = palette.skyTop;
-    ctx.fillRect(0, 0, this.B.LW, split);
-    ctx.fillStyle = palette.skyBottom;
-    ctx.fillRect(0, split, this.B.LW, this.B.LH - split);
-
-    ctx.fillStyle = palette.far;
-    for (let x = 0; x < this.B.LW; x += 16) {
-      const rise = ((x / 16) % 4) * 3;
-      ctx.fillRect(x, 226 - rise, 18, 94 + rise);
+    const sky = ctx.createLinearGradient(0, 0, 0, this.B.LH);
+    if (world === 'forest') {
+      sky.addColorStop(0, '#467597');
+      sky.addColorStop(.48, '#8db5b1');
+      sky.addColorStop(1, '#d5d19f');
+    } else if (world === 'clouds') {
+      sky.addColorStop(0, '#59a9e7');
+      sky.addColorStop(.54, '#9ed8f4');
+      sky.addColorStop(1, '#eef8fb');
+    } else {
+      sky.addColorStop(0, '#4ea9e8');
+      sky.addColorStop(.52, '#9ddaf4');
+      sky.addColorStop(1, '#f1f3c3');
     }
-    ctx.fillStyle = palette.near;
-    for (let x = -8; x < this.B.LW; x += 24) {
-      const rise = ((x + 8) / 24) % 3 * 5;
-      ctx.fillRect(x, 257 - rise, 28, 63 + rise);
-    }
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, this.B.LW, this.B.LH);
 
-    if (world === 'meadow') this.drawMeadowBackdrop(time, palette);
-    else if (world === 'clouds') this.drawCloudBackdrop(time, palette);
-    else this.drawForestBackdrop(time, palette, Boolean(level?.boss));
+    if (world === 'meadow') this.drawMeadowBackdrop(time);
+    else if (world === 'clouds') this.drawCloudBackdrop(time);
+    else this.drawForestBackdrop(time, Boolean(level?.boss));
 
     if (level?.boss) {
-      ctx.fillStyle = 'rgba(12,19,35,.2)';
-      ctx.fillRect(0, 0, this.B.LW, this.B.LH);
-      ctx.fillStyle = 'rgba(219,236,255,.16)';
-      const flash = Math.floor(time / 220) % 17 === 0;
-      if (flash) {
-        ctx.fillRect(186, 34, 4, 28);
-        ctx.fillRect(182, 56, 8, 4);
-        ctx.fillRect(178, 60, 8, 4);
-        ctx.fillRect(178, 64, 4, 20);
+      const vignette = ctx.createRadialGradient(120, 150, 20, 120, 150, 180);
+      vignette.addColorStop(0, 'rgba(26,39,57,0)');
+      vignette.addColorStop(1, 'rgba(18,25,42,.34)');
+      ctx.fillStyle = vignette;
+      ctx.fillRect(0, 0, 240, 320);
+      if (Math.floor(time / 220) % 17 === 0) {
+        ctx.strokeStyle = 'rgba(240,248,255,.75)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(188, 28); ctx.lineTo(181, 52); ctx.lineTo(187, 52); ctx.lineTo(178, 78);
+        ctx.stroke();
       }
     }
   }
 
-  drawMeadowBackdrop(time, palette) {
+  drawMeadowBackdrop(time) {
     const ctx = this.ctx;
-    ctx.fillStyle = palette.accent;
-    ctx.fillRect(190, 30, 18, 18);
-    ctx.fillStyle = '#FFE28B';
-    ctx.fillRect(194, 34, 10, 10);
+    const sun = ctx.createRadialGradient(194, 56, 2, 194, 56, 30);
+    sun.addColorStop(0, 'rgba(255,248,198,.95)');
+    sun.addColorStop(.42, 'rgba(255,230,138,.72)');
+    sun.addColorStop(1, 'rgba(255,230,138,0)');
+    ctx.fillStyle = sun;
+    ctx.fillRect(160, 20, 68, 68);
 
-    const drift = Math.floor((time * .008) % 280);
-    pixelCloud(ctx, -42 + drift, 64, 1, '#EAF7FF');
-    pixelCloud(ctx, 96 + (drift >> 1), 112, .8, '#DDF1FB');
+    const drift = (time * .0028) % 280;
+    roundedCloud(ctx, -35 + drift, 72, .78, .75);
+    roundedCloud(ctx, 80 + drift * .42, 112, .58, .58);
+    roundedCloud(ctx, 214 - drift * .2, 91, .52, .45);
 
-    ctx.fillStyle = '#2F7C42';
-    for (let x = 0; x < this.B.LW; x += 10) {
-      const h = 4 + ((x / 10) % 3) * 2;
-      ctx.fillRect(x, 284 - h, 6, h);
+    hill(ctx, [[0, 235], [38, 214], [74, 228], [116, 205], [160, 227], [201, 210], [240, 225]], '#8ec3d8');
+    hill(ctx, [[0, 252], [32, 230], [68, 244], [104, 222], [147, 244], [186, 226], [240, 247]], '#6ea8be');
+    hill(ctx, [[0, 273], [35, 252], [76, 262], [118, 245], [165, 258], [205, 246], [240, 260]], '#9fc56f');
+    hill(ctx, [[0, 292], [45, 270], [82, 284], [125, 265], [169, 280], [211, 267], [240, 278]], '#79b95f');
+
+    for (let i = 0; i < 18; i += 1) {
+      const x = i * 15 - 6;
+      const y = 286 + (i % 4) * 2;
+      tree(ctx, x, y, .7 + (i % 3) * .08, i % 2 ? '#407b59' : '#4d865c');
+    }
+    ctx.fillStyle = '#5fae4e';
+    ctx.fillRect(0, 292, 240, 28);
+    for (let i = 0; i < 28; i += 1) {
+      const x = (i * 29) % 238;
+      const y = 296 + ((i * 7) % 18);
+      ctx.fillStyle = i % 3 === 0 ? '#fff7cc' : i % 3 === 1 ? '#f5d452' : '#f2a354';
+      ctx.fillRect(x, y, 1.2, 1.2);
     }
   }
 
   drawCloudBackdrop(time) {
     const ctx = this.ctx;
-    const drift = Math.floor((time * .005) % 300);
-    pixelCloud(ctx, -66 + drift, 54, 1.1, '#F8FDFF');
-    pixelCloud(ctx, 52 + (drift >> 1), 126, .9, '#EAF7FC');
-    pixelCloud(ctx, 168 - (drift >> 2), 188, .72, '#FFFFFF');
+    const drift = (time * .002) % 300;
+    roundedCloud(ctx, -40 + drift, 64, .9, .74);
+    roundedCloud(ctx, 82 + drift * .35, 125, .72, .62);
+    roundedCloud(ctx, 205 - drift * .22, 188, .68, .68);
 
-    ctx.fillStyle = '#8AB9D0';
-    ctx.fillRect(18, 252, 38, 5);
-    ctx.fillRect(23, 257, 28, 5);
-    ctx.fillRect(176, 240, 46, 5);
-    ctx.fillRect(182, 245, 34, 5);
+    ctx.fillStyle = 'rgba(255,255,255,.5)';
+    ctx.beginPath();
+    ctx.ellipse(48, 252, 35, 13, 0, 0, Math.PI * 2);
+    ctx.ellipse(190, 240, 43, 15, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#83b8c9';
+    ctx.beginPath();
+    ctx.moveTo(20, 251); ctx.quadraticCurveTo(48, 277, 76, 251); ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(153, 239); ctx.quadraticCurveTo(190, 273, 227, 239); ctx.closePath(); ctx.fill();
+
+    const haze = ctx.createLinearGradient(0, 210, 0, 320);
+    haze.addColorStop(0, 'rgba(235,249,255,0)');
+    haze.addColorStop(1, 'rgba(235,249,255,.72)');
+    ctx.fillStyle = haze;
+    ctx.fillRect(0, 210, 240, 110);
   }
 
-  drawForestBackdrop(time, palette, boss) {
+  drawForestBackdrop(time, boss) {
     const ctx = this.ctx;
-    const ground = 286;
-    for (let x = 10; x < this.B.LW; x += 34) {
-      const variant = ((x / 34) | 0) % 2;
-      pixelTree(ctx, x, ground, variant ? .85 : 1, variant ? '#3D6C50' : palette.far);
-    }
+    roundedCloud(ctx, 46 + Math.sin(time * .0004) * 8, 78, .56, .25);
+    roundedCloud(ctx, 182 - Math.sin(time * .00035) * 6, 108, .46, .2);
 
-    const drift = Math.floor((time * .018) % 60);
-    ctx.fillStyle = boss ? '#D8E8EF' : '#C8DFD2';
+    hill(ctx, [[0, 226], [38, 199], [74, 218], [112, 192], [151, 216], [191, 193], [240, 216]], boss ? '#587377' : '#6d9591');
+    hill(ctx, [[0, 251], [30, 225], [70, 244], [111, 219], [151, 245], [194, 220], [240, 242]], boss ? '#355b54' : '#4e7866');
+
+    for (let i = 0; i < 22; i += 1) {
+      const x = i * 12 - 4;
+      const scale = .72 + (i % 4) * .08;
+      tree(ctx, x, 279, scale, boss ? '#24483f' : i % 2 ? '#315f4a' : '#386a51', '#5d4636');
+    }
+    ctx.fillStyle = boss ? '#1f4038' : '#2f5b42';
+    ctx.fillRect(0, 278, 240, 42);
+
+    const drift = (time * .018) % 70;
+    ctx.strokeStyle = boss ? 'rgba(225,239,244,.5)' : 'rgba(219,235,221,.42)';
+    ctx.lineWidth = .8;
     for (let row = 0; row < 4; row += 1) {
-      const y = 74 + row * 42;
-      for (let x = -40 + drift; x < this.B.LW + 20; x += 34) {
-        ctx.fillRect(x, y, 10, 2);
-        ctx.fillRect(x + 8, y - 2, 4, 2);
+      const y = 86 + row * 38;
+      for (let x = -65 + drift; x < 270; x += 44) {
+        ctx.beginPath();
+        ctx.moveTo(x, y); ctx.quadraticCurveTo(x + 8, y - 3, x + 17, y); ctx.stroke();
       }
-    }
-
-    ctx.fillStyle = '#89AD66';
-    for (let i = 0; i < 7; i += 1) {
-      const x = (i * 37 + Math.floor(time * .012)) % 260 - 10;
-      const y = 96 + (i % 3) * 44 + ((Math.floor(time / 240) + i) % 3) * 2;
-      ctx.fillRect(x, y, 5, 2);
-      ctx.fillRect(x + 2, y - 2, 3, 2);
     }
   }
 
   drawCeiling(ceilRow) {
     const ctx = this.ctx;
-    const y = snap(this.B.rowY(ceilRow) - this.B.RAD - 4);
-    ctx.fillStyle = '#48647A';
-    for (let x = 8; x < this.B.LW - 8; x += 8) ctx.fillRect(x, y, 4, 2);
+    const y = this.B.rowY(ceilRow) - this.B.RAD - 4;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(42,68,88,.55)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(8, y); ctx.lineTo(this.B.LW - 8, y); ctx.stroke();
+    ctx.restore();
   }
 
-  drawAim(points) {
+  drawAim(points, time) {
     const ctx = this.ctx;
-    ctx.fillStyle = '#F7FCFF';
+    const pulse = .72 + Math.sin(time * .01) * .16;
+    ctx.save();
+    ctx.fillStyle = `rgba(248,252,255,${pulse})`;
     points.forEach((point, index) => {
       if (index % 3) return;
-      const size = index < 9 ? 3 : 2;
-      ctx.fillRect(snap(point.x - size / 2), snap(point.y - size / 2), size, size);
+      const r = index < 8 ? 1.8 : 1.25;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, r, 0, Math.PI * 2);
+      ctx.fill();
     });
+    ctx.restore();
   }
 
-  drawBalloon(color, x, y, scale = 1) {
+  drawOrb(color, x, y, scale = 1) {
     const ctx = this.ctx;
-    const image = this.images.get(color);
-    const size = this.B.RAD * 2 * scale;
-    if (image?.complete && image.naturalWidth) {
-      const smoothing = ctx.imageSmoothingEnabled;
-      ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(image, x - size / 2, y - size / 2, size, size);
-      ctx.imageSmoothingEnabled = smoothing;
-      return;
-    }
-
-    ctx.fillStyle = COLORS[color] || '#fff';
-    ctx.beginPath();
-    ctx.arc(x, y, size / 2 - 1, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,.55)';
-    ctx.beginPath();
-    ctx.arc(x - size * .16, y - size * .18, size * .12, 0, Math.PI * 2);
-    ctx.fill();
+    const sprite = this.orbSprites.get(color) || this.orbSprites.get(1);
+    const size = 24 * scale;
+    const smoothing = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(sprite, x - size / 2, y - size / 2, size, size);
+    ctx.imageSmoothingEnabled = smoothing;
   }
 
   drawShot(shot, x, y) {
-    this.drawBalloon(shot.color || 1, x, y, 1);
-    if (shot.type === 'bomb' || shot.type === 'rainbow') {
+    this.drawOrb(shot.color || 1, x, y, 1);
+    if (shot.type === 'bomb' || shot.type === 'rainbow' || shot.type === 'guide') {
       drawPixelSpecial(this.ctx, shot.type, snap(x), snap(y));
     }
   }
 
   drawObject(object, x, y, time) {
-    const bob = Math.floor(time / 240 + x) % 2;
+    const bob = Math.sin(time * .005 + x) * 1.4;
     const px = snap(x);
-    const py = snap(y - 1 - bob);
-    this.ctx.fillStyle = 'rgba(12,26,40,.28)';
+    const py = snap(y - 1 + bob);
+    this.ctx.fillStyle = 'rgba(12,26,40,.24)';
     this.ctx.fillRect(px - 8, py - 8, 16, 16);
     drawPixelObject(this.ctx, object.type, px, py);
-  }
-
-  drawLauncher() {
-    drawPixelLauncher(this.ctx, this.B.LW / 2, this.B.LAUNCH_Y + 18);
   }
 
   drawParticles(particles) {
@@ -255,8 +293,7 @@ export class GameRenderer {
     for (const p of particles) {
       ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
       ctx.fillStyle = p.color;
-      const size = p.life > p.maxLife * .5 ? 3 : 2;
-      ctx.fillRect(snap(p.x), snap(p.y), size, size);
+      ctx.fillRect(snap(p.x), snap(p.y), p.life > p.maxLife * .5 ? 2.5 : 1.5, p.life > p.maxLife * .5 ? 2.5 : 1.5);
     }
     ctx.globalAlpha = 1;
   }
