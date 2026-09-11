@@ -29,10 +29,10 @@ export function projectileTrailSegments(projectile) {
   }));
 }
 
-function roundedCloud(ctx, x, y, scale = 1, alpha = 1) {
+function roundedCloud(ctx, x, y, scale = 1, alpha = 1, fill = '#fff') {
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.fillStyle = '#fff';
+  ctx.fillStyle = fill;
   ctx.beginPath();
   ctx.ellipse(x, y, 19 * scale, 8 * scale, 0, 0, Math.PI * 2);
   ctx.ellipse(x - 13 * scale, y + 2 * scale, 12 * scale, 7 * scale, 0, 0, Math.PI * 2);
@@ -69,6 +69,16 @@ function tree(ctx, x, y, scale = 1, leaf = '#376f55', trunk = '#76563b') {
   ctx.fill();
 }
 
+function skyPalette(world, timeOfDay) {
+  if (timeOfDay === 'night') return ['#08172f', '#173451', '#496274'];
+  if (timeOfDay === 'dusk') return ['#263d68', '#776b8e', '#d69a78'];
+  if (timeOfDay === 'sunset') return ['#5877ad', '#e58f83', '#f4cf8b'];
+  if (timeOfDay === 'morning') return ['#64afe3', '#a7d8ed', '#f4e8bd'];
+  if (world === 'forest') return ['#467597', '#8db5b1', '#d5d19f'];
+  if (world === 'clouds') return ['#59a9e7', '#9ed8f4', '#eef8fb'];
+  return ['#4ea9e8', '#9ddaf4', '#f1f3c3'];
+}
+
 export class GameRenderer {
   constructor(canvas, B) {
     this.canvas = canvas;
@@ -98,38 +108,58 @@ export class GameRenderer {
   draw(state, time = 0) {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, this.B.LW, this.B.LH);
+    ctx.fillStyle = '#17324a';
+    ctx.fillRect(0, 0, this.B.LW, this.B.LH);
+
+    const shake = Number(state?.shake) || 0;
+    const shakeX = shake ? Math.sin(time * .071) * shake * .75 : 0;
+    const shakeY = shake ? Math.cos(time * .093) * shake * .45 : 0;
+    ctx.save();
+    ctx.translate(shakeX, shakeY);
+
     this.drawSky(state?.level, time);
-    if (!state?.level) return;
+    if (state?.level) {
+      this.drawCeiling(state.ceilRow);
+      if (!state.projectile && state.status === 'playing' && !state.paused) {
+        if (state.trajectory?.length) this.drawAim(state.trajectory, time);
+        else if (state.aimSegment) this.drawShortAim(state.aimSegment, time);
+      }
 
-    this.drawCeiling(state.ceilRow);
-    if (!state.projectile && state.status === 'playing' && !state.paused && state.trajectory?.length) this.drawAim(state.trajectory, time);
+      for (const [key, color] of state.grid) {
+        const [c, r] = this.B.split(key);
+        const x = this.B.colX(c, r);
+        const y = this.B.rowY(r);
+        this.drawOrb(color, x, y, 1);
+        const object = state.objects.get(key);
+        if (object) this.drawObject(object, x, y, time);
+      }
 
-    for (const [key, color] of state.grid) {
-      const [c, r] = this.B.split(key);
-      const x = this.B.colX(c, r);
-      const y = this.B.rowY(r);
-      this.drawOrb(color, x, y, 1);
-      const object = state.objects.get(key);
-      if (object) this.drawObject(object, x, y, time);
+      for (const item of state.falling) {
+        ctx.save();
+        ctx.translate(item.x, item.y);
+        ctx.rotate(item.rot);
+        this.drawOrb(item.color, 0, 0, .92);
+        ctx.restore();
+      }
+
+      this.drawOrbRack(state.queue || [], Boolean(state.projectile));
+      if (state.projectile) {
+        this.drawProjectileTrail(state.projectile);
+        this.drawShot(state.projectile, state.projectile.x, state.projectile.y, 1);
+      }
+
+      this.drawParticles(state.particles);
     }
+    ctx.restore();
 
-    for (const item of state.falling) {
+    if (state?.flash > 0) {
       ctx.save();
-      ctx.translate(item.x, item.y);
-      ctx.rotate(item.rot);
-      this.drawOrb(item.color, 0, 0, .92);
+      ctx.fillStyle = `rgba(255,255,255,${Math.min(.28, state.flash)})`;
+      ctx.fillRect(0, 0, this.B.LW, this.B.LH);
       ctx.restore();
     }
 
-    this.drawOrbRack(state.queue || [], Boolean(state.projectile));
-    if (state.projectile) {
-      this.drawProjectileTrail(state.projectile);
-      this.drawShot(state.projectile, state.projectile.x, state.projectile.y, 1);
-    }
-
-    this.drawParticles(state.particles);
-
-    if (state.paused) {
+    if (state?.paused) {
       ctx.fillStyle = 'rgba(9, 22, 34, .48)';
       ctx.fillRect(0, 0, this.B.LW, this.B.LH);
     }
@@ -138,36 +168,43 @@ export class GameRenderer {
   drawSky(level, time) {
     const ctx = this.ctx;
     const world = level?.world || 'meadow';
+    const atmosphere = level?.atmosphere || { timeOfDay: 'day', weather: 'clear', intensity: 0 };
+    const colors = skyPalette(world, atmosphere.timeOfDay);
     const sky = ctx.createLinearGradient(0, 0, 0, this.B.LH);
-    if (world === 'forest') {
-      sky.addColorStop(0, '#467597');
-      sky.addColorStop(.48, '#8db5b1');
-      sky.addColorStop(1, '#d5d19f');
-    } else if (world === 'clouds') {
-      sky.addColorStop(0, '#59a9e7');
-      sky.addColorStop(.54, '#9ed8f4');
-      sky.addColorStop(1, '#eef8fb');
-    } else {
-      sky.addColorStop(0, '#4ea9e8');
-      sky.addColorStop(.52, '#9ddaf4');
-      sky.addColorStop(1, '#f1f3c3');
-    }
+    sky.addColorStop(0, colors[0]);
+    sky.addColorStop(.52, colors[1]);
+    sky.addColorStop(1, colors[2]);
     ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, this.B.LW, this.B.LH);
+    ctx.fillRect(-8, -8, this.B.LW + 16, this.B.LH + 16);
 
-    if (world === 'meadow') this.drawMeadowBackdrop(time);
-    else if (world === 'clouds') this.drawCloudBackdrop(time);
-    else this.drawForestBackdrop(time, Boolean(level?.boss));
+    if (world === 'meadow') this.drawMeadowBackdrop(time, atmosphere);
+    else if (world === 'clouds') this.drawCloudBackdrop(time, atmosphere);
+    else this.drawForestBackdrop(time, Boolean(level?.boss), atmosphere);
 
-    if (level?.boss) {
+    this.drawAtmosphere(atmosphere, time);
+
+    if (atmosphere.timeOfDay === 'night') {
+      ctx.save();
+      ctx.fillStyle = 'rgba(241,246,221,.72)';
+      ctx.beginPath();
+      ctx.arc(192, 47, 13, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(25,45,69,.45)';
+      ctx.beginPath();
+      ctx.arc(198, 43, 12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    if (level?.boss || atmosphere.weather === 'storm') {
       const vignette = ctx.createRadialGradient(120, 150, 20, 120, 150, 180);
       vignette.addColorStop(0, 'rgba(26,39,57,0)');
-      vignette.addColorStop(1, 'rgba(18,25,42,.34)');
+      vignette.addColorStop(1, 'rgba(8,14,31,.42)');
       ctx.fillStyle = vignette;
       ctx.fillRect(0, 0, 240, 320);
-      if (Math.floor(time / 220) % 17 === 0) {
-        ctx.strokeStyle = 'rgba(240,248,255,.75)';
-        ctx.lineWidth = 1.2;
+      if (Math.floor(time / 160) % 23 === 0) {
+        ctx.strokeStyle = 'rgba(240,248,255,.88)';
+        ctx.lineWidth = 1.25;
         ctx.beginPath();
         ctx.moveTo(188, 28); ctx.lineTo(181, 52); ctx.lineTo(187, 52); ctx.lineTo(178, 78);
         ctx.stroke();
@@ -175,19 +212,22 @@ export class GameRenderer {
     }
   }
 
-  drawMeadowBackdrop(time) {
+  drawMeadowBackdrop(time, atmosphere) {
     const ctx = this.ctx;
-    const sun = ctx.createRadialGradient(194, 56, 2, 194, 56, 30);
-    sun.addColorStop(0, 'rgba(255,248,198,.95)');
-    sun.addColorStop(.42, 'rgba(255,230,138,.72)');
+    const timeOfDay = atmosphere?.timeOfDay || 'day';
+    const sunX = timeOfDay === 'morning' ? 58 : timeOfDay === 'sunset' ? 205 : 194;
+    const sunY = timeOfDay === 'sunset' ? 176 : timeOfDay === 'morning' ? 72 : 56;
+    const sun = ctx.createRadialGradient(sunX, sunY, 2, sunX, sunY, 30);
+    sun.addColorStop(0, timeOfDay === 'sunset' ? 'rgba(255,236,184,.98)' : 'rgba(255,248,198,.95)');
+    sun.addColorStop(.42, timeOfDay === 'sunset' ? 'rgba(255,167,91,.74)' : 'rgba(255,230,138,.72)');
     sun.addColorStop(1, 'rgba(255,230,138,0)');
     ctx.fillStyle = sun;
-    ctx.fillRect(160, 20, 68, 68);
+    ctx.fillRect(sunX - 34, sunY - 34, 68, 68);
 
     const drift = (time * .0028) % 280;
-    roundedCloud(ctx, -35 + drift, 72, .78, .75);
-    roundedCloud(ctx, 80 + drift * .42, 112, .58, .58);
-    roundedCloud(ctx, 214 - drift * .2, 91, .52, .45);
+    roundedCloud(ctx, -35 + drift, 72, .78, .72);
+    roundedCloud(ctx, 80 + drift * .42, 112, .58, .54);
+    roundedCloud(ctx, 214 - drift * .2, 91, .52, .42);
 
     hill(ctx, [[0, 235], [38, 214], [74, 228], [116, 205], [160, 227], [201, 210], [240, 225]], '#8ec3d8');
     hill(ctx, [[0, 252], [32, 230], [68, 244], [104, 222], [147, 244], [186, 226], [240, 247]], '#6ea8be');
@@ -209,12 +249,13 @@ export class GameRenderer {
     }
   }
 
-  drawCloudBackdrop(time) {
+  drawCloudBackdrop(time, atmosphere) {
     const ctx = this.ctx;
     const drift = (time * .002) % 300;
-    roundedCloud(ctx, -40 + drift, 64, .9, .74);
-    roundedCloud(ctx, 82 + drift * .35, 125, .72, .62);
-    roundedCloud(ctx, 205 - drift * .22, 188, .68, .68);
+    const muted = ['overcast', 'rain', 'fog'].includes(atmosphere?.weather);
+    roundedCloud(ctx, -40 + drift, 64, .9, .74, muted ? '#e8eef1' : '#fff');
+    roundedCloud(ctx, 82 + drift * .35, 125, .72, .62, muted ? '#dce7ec' : '#fff');
+    roundedCloud(ctx, 205 - drift * .22, 188, .68, .68, muted ? '#e2eaee' : '#fff');
 
     ctx.fillStyle = 'rgba(255,255,255,.5)';
     ctx.beginPath();
@@ -235,10 +276,10 @@ export class GameRenderer {
     ctx.fillRect(0, 210, 240, 110);
   }
 
-  drawForestBackdrop(time, boss) {
+  drawForestBackdrop(time, boss, atmosphere) {
     const ctx = this.ctx;
-    roundedCloud(ctx, 46 + Math.sin(time * .0004) * 8, 78, .56, .25);
-    roundedCloud(ctx, 182 - Math.sin(time * .00035) * 6, 108, .46, .2);
+    roundedCloud(ctx, 46 + Math.sin(time * .0004) * 8, 78, .56, .25, atmosphere?.timeOfDay === 'night' ? '#98a9b8' : '#fff');
+    roundedCloud(ctx, 182 - Math.sin(time * .00035) * 6, 108, .46, .2, atmosphere?.timeOfDay === 'night' ? '#8c9aa8' : '#fff');
 
     hill(ctx, [[0, 226], [38, 199], [74, 218], [112, 192], [151, 216], [191, 193], [240, 216]], boss ? '#587377' : '#6d9591');
     hill(ctx, [[0, 251], [30, 225], [70, 244], [111, 219], [151, 245], [194, 220], [240, 242]], boss ? '#355b54' : '#4e7866');
@@ -250,16 +291,76 @@ export class GameRenderer {
     }
     ctx.fillStyle = boss ? '#1f4038' : '#2f5b42';
     ctx.fillRect(0, 278, 240, 42);
+  }
 
-    const drift = (time * .018) % 70;
-    ctx.strokeStyle = boss ? 'rgba(225,239,244,.5)' : 'rgba(219,235,221,.42)';
-    ctx.lineWidth = .8;
-    for (let row = 0; row < 4; row += 1) {
-      const y = 86 + row * 38;
-      for (let x = -65 + drift; x < 270; x += 44) {
-        ctx.beginPath();
-        ctx.moveTo(x, y); ctx.quadraticCurveTo(x + 8, y - 3, x + 17, y); ctx.stroke();
+  drawAtmosphere(atmosphere, time) {
+    const ctx = this.ctx;
+    const weather = atmosphere?.weather || 'clear';
+    const intensity = Math.max(0, Math.min(1, Number(atmosphere?.intensity) || 0));
+    const timeOfDay = atmosphere?.timeOfDay || 'day';
+
+    if (timeOfDay === 'sunset') {
+      ctx.fillStyle = 'rgba(255,116,74,.08)';
+      ctx.fillRect(0, 0, this.B.LW, this.B.LH);
+    } else if (timeOfDay === 'dusk') {
+      ctx.fillStyle = 'rgba(38,36,82,.14)';
+      ctx.fillRect(0, 0, this.B.LW, this.B.LH);
+    } else if (timeOfDay === 'night') {
+      ctx.fillStyle = 'rgba(4,10,28,.28)';
+      ctx.fillRect(0, 0, this.B.LW, this.B.LH);
+    }
+
+    if (weather === 'clouds' || weather === 'overcast' || weather === 'storm') {
+      const cloudFill = weather === 'storm' ? '#627182' : weather === 'overcast' ? '#aab8c2' : '#e2ebef';
+      const alpha = weather === 'storm' ? .48 : .28 + intensity * .24;
+      roundedCloud(ctx, 48 + Math.sin(time * .00025) * 12, 43, 1.05, alpha, cloudFill);
+      roundedCloud(ctx, 180 - Math.sin(time * .00019) * 10, 78, .92, alpha * .9, cloudFill);
+    }
+
+    if (weather === 'fog') {
+      for (let i = 0; i < 4; i += 1) {
+        const y = 88 + i * 48 + Math.sin(time * .00055 + i) * 5;
+        const fog = ctx.createLinearGradient(0, y, this.B.LW, y);
+        fog.addColorStop(0, 'rgba(238,247,248,.08)');
+        fog.addColorStop(.45, `rgba(238,247,248,${.14 + intensity * .2})`);
+        fog.addColorStop(1, 'rgba(238,247,248,.06)');
+        ctx.fillStyle = fog;
+        ctx.fillRect(0, y - 12, this.B.LW, 24);
       }
+    }
+
+    if (weather === 'breeze' || weather === 'windy') {
+      const count = weather === 'windy' ? 14 : 7;
+      ctx.save();
+      ctx.strokeStyle = weather === 'windy' ? 'rgba(236,249,251,.34)' : 'rgba(247,252,252,.2)';
+      ctx.lineWidth = .7;
+      for (let i = 0; i < count; i += 1) {
+        const x = ((i * 43 + time * (weather === 'windy' ? .04 : .018)) % 290) - 30;
+        const y = 54 + ((i * 29) % 178);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.quadraticCurveTo(x + 8, y - 2, x + 18 + intensity * 8, y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    if (weather === 'rain' || weather === 'heavy-rain' || weather === 'storm') {
+      const count = weather === 'rain' ? 26 : weather === 'heavy-rain' ? 42 : 54;
+      const speed = weather === 'storm' ? .18 : weather === 'heavy-rain' ? .13 : .09;
+      ctx.save();
+      ctx.strokeStyle = weather === 'storm' ? 'rgba(207,230,247,.46)' : 'rgba(215,237,249,.36)';
+      ctx.lineWidth = weather === 'storm' ? .9 : .7;
+      for (let i = 0; i < count; i += 1) {
+        const x = ((i * 37 + time * speed) % 300) - 30;
+        const y = ((i * 61 + time * speed * 1.8) % 360) - 20;
+        const len = 5 + intensity * 6;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - 2.5, y + len);
+        ctx.stroke();
+      }
+      ctx.restore();
     }
   }
 
@@ -272,6 +373,26 @@ export class GameRenderer {
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
     ctx.moveTo(8, y); ctx.lineTo(this.B.LW - 8, y); ctx.stroke();
+    ctx.restore();
+  }
+
+  drawShortAim(segment, time) {
+    const ctx = this.ctx;
+    const pulse = .64 + Math.sin(time * .008) * .08;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = `rgba(248,252,255,${pulse})`;
+    ctx.lineWidth = 1.25;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.moveTo(segment.start.x, segment.start.y);
+    ctx.lineTo(segment.end.x, segment.end.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = `rgba(248,252,255,${Math.min(1, pulse + .14)})`;
+    ctx.beginPath();
+    ctx.arc(segment.end.x, segment.end.y, 1.5, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 
@@ -365,11 +486,13 @@ export class GameRenderer {
 
   drawParticles(particles) {
     const ctx = this.ctx;
+    ctx.save();
     for (const p of particles) {
       ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
       ctx.fillStyle = p.color;
-      ctx.fillRect(snap(p.x), snap(p.y), p.life > p.maxLife * .5 ? 2.5 : 1.5, p.life > p.maxLife * .5 ? 2.5 : 1.5);
+      const size = Math.max(1.2, Number(p.size) || (p.life > p.maxLife * .5 ? 2.5 : 1.5));
+      ctx.fillRect(snap(p.x - size / 2), snap(p.y - size / 2), size, size);
     }
-    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 }
