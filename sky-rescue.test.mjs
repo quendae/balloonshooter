@@ -8,6 +8,7 @@ import {
   isLevelUnlocked,
 } from './src/sky-rescue-core.mjs';
 import { LEVELS } from './src/levels.mjs';
+import { normalizeProgress } from './src/save.mjs';
 
 function test(name, fn) {
   try {
@@ -84,4 +85,13 @@ test('campaign ships exactly three worlds with five authored levels each', () =>
   assert.ok(LEVELS.some((level) => level.objective.type === 'collect'));
   assert.ok(LEVELS.some((level) => level.objective.type === 'anchors'));
   assert.ok(LEVELS.some((level) => level.boss));
+});
+
+test('save normalization recovers safely from invalid or partial data', () => {
+  assert.deepEqual(normalizeProgress(null), { version: 1, levels: {}, settings: { sound: true } });
+  assert.deepEqual(normalizeProgress({ version: 1, levels: { 'meadow-01': { stars: 9, score: -5 } } }), {
+    version: 1,
+    levels: { 'meadow-01': { stars: 3, score: 0, completed: true } },
+    settings: { sound: true },
+  });
 });
