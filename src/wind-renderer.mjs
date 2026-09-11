@@ -75,3 +75,8 @@ export function drawGlobalWind(ctx, wind, time = 0, B = { LW: 240, LH: 320 }) {
   drawArrow(ctx, indicatorX, indicatorY, vector, .82, .82 + vector.strength * .18);
   ctx.restore();
 }
+
+// Transitional compatibility until authored Forest content migrates to one
+// whole-board vector. The old controller may still import this symbol, but
+// corridor boxes are intentionally no longer rendered.
+export function drawWindCorridors() {}
