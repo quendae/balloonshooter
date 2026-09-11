@@ -12,6 +12,7 @@ import {
 } from './src/sky-rescue-core.mjs';
 import { LEVELS } from './src/levels.mjs';
 import { normalizeProgress } from './src/save.mjs';
+import { clampAimAngle, stepProjectile, toLogicalPoint } from './src/game-physics.mjs';
 
 function test(name, fn) {
   try {
@@ -35,10 +36,7 @@ test('clear objective completes only when no balloons remain', () => {
 });
 
 test('rescue, collect, anchors and survive objectives expose progress', () => {
-  assert.deepEqual(
-    evaluateObjective({ type: 'rescue', amount: 2 }, { rescued: 1 }),
-    { complete: false, current: 1, target: 2 }
-  );
+  assert.deepEqual(evaluateObjective({ type: 'rescue', amount: 2 }, { rescued: 1 }), { complete: false, current: 1, target: 2 });
   assert.equal(evaluateObjective({ type: 'collect', amount: 3 }, { collected: 3 }).complete, true);
   assert.equal(evaluateObjective({ type: 'anchors', amount: 2 }, { anchorsDestroyed: 2 }).complete, true);
   assert.equal(evaluateObjective({ type: 'survive', amount: 5 }, { turnsSurvived: 4 }).complete, false);
@@ -94,9 +92,7 @@ test('authored level objects are attached to valid occupied cells', () => {
   for (const level of LEVELS) {
     const occupied = new Set(level.grid.map(({ c, r }) => `${c},${r}`));
     assert.equal(occupied.size, level.grid.length, `${level.id} has duplicate cells`);
-    for (const object of level.objects) {
-      assert.ok(occupied.has(object.at.join(',')), `${level.id} object ${object.id} is not attached to a balloon`);
-    }
+    for (const object of level.objects) assert.ok(occupied.has(object.at.join(',')), `${level.id} object ${object.id} is not attached to a balloon`);
   }
 });
 
@@ -124,4 +120,24 @@ test('optional challenge supports accuracy and shots-left rules', () => {
   assert.equal(isOptionalComplete({ type: 'accuracy', maxMisses: 2 }, { misses: 2, shotsRemaining: 0 }), true);
   assert.equal(isOptionalComplete({ type: 'accuracy', maxMisses: 2 }, { misses: 3, shotsRemaining: 9 }), false);
   assert.equal(isOptionalComplete({ type: 'shots-left', amount: 4 }, { misses: 10, shotsRemaining: 4 }), true);
+});
+
+test('aim angle is clamped to the playable upper arc', () => {
+  assert.equal(clampAimAngle(0), -0.18);
+  assert.equal(clampAimAngle(-Math.PI), -Math.PI + 0.18);
+  assert.equal(clampAimAngle(-Math.PI / 2), -Math.PI / 2);
+});
+
+test('projectile step reflects from left and right walls without changing vertical speed', () => {
+  const left = stepProjectile({ x: 5, y: 100, vx: -20, vy: -50 }, 0.1, { minX: 12, maxX: 228 });
+  assert.equal(left.x, 12);
+  assert.equal(left.vx, 20);
+  assert.equal(left.vy, -50);
+  const right = stepProjectile({ x: 235, y: 100, vx: 20, vy: -50 }, 0.1, { minX: 12, maxX: 228 });
+  assert.equal(right.x, 228);
+  assert.equal(right.vx, -20);
+});
+
+test('client coordinates map into logical canvas coordinates', () => {
+  assert.deepEqual(toLogicalPoint(150, 260, { left: 50, top: 100, width: 400, height: 400 }, 240, 320), { x: 60, y: 128 });
 });
