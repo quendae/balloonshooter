@@ -16,4 +16,9 @@ const flying = renderer.orbRackLayout(B, true);
 assert.equal(flying.current, null, 'no duplicate current orb should remain while the shot is in flight');
 assert.equal(flying.next.length, 2, 'the two upcoming orbs should remain visible while a shot flies');
 
-console.log('OK: in-playfield orb rack layout contract passed');
+assert.equal(typeof renderer.projectileTrailSegments, 'function', 'renderer should expose a short motion trail for a flying orb');
+const trail = renderer.projectileTrailSegments({ x: 120, y: 150, vx: 300, vy: -300 });
+assert.equal(trail.length, 3, 'flying orb should get three short motion marks');
+assert.ok(trail.every((mark) => mark.x < 120 && mark.y > 150), 'trail marks must sit behind the projectile, never predict its future path');
+
+console.log('OK: in-playfield orb rack and projectile motion feedback contract passed');
