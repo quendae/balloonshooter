@@ -53,6 +53,7 @@ const game = new SkyRescueGame(refs.canvas, {
   onCollect: () => { audio.collect(); flashCallout('STAR!'); },
   onAnchor: () => { audio.anchor(); flashCallout('ANCHOR DOWN'); },
   onCeilingDrop: () => { audio.ceiling(); flashCallout('CEILING DROP'); },
+  onLightning: () => { audio.lightning(); flashCallout('PIORUN!'); },
   onBossPhase: ({ current, total }) => {
     renderBossPips(refs.bossPips, current, total);
     audio.boss();
