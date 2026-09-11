@@ -25,6 +25,24 @@ const FOREST_WINDS = {
   ],
 };
 
+const ATMOSPHERES = {
+  'meadow-01': { timeOfDay: 'morning', weather: 'clear', intensity: .1 },
+  'meadow-02': { timeOfDay: 'morning', weather: 'breeze', intensity: .25 },
+  'meadow-03': { timeOfDay: 'day', weather: 'clear', intensity: .15 },
+  'meadow-04': { timeOfDay: 'sunset', weather: 'clear', intensity: .2 },
+  'meadow-05': { timeOfDay: 'sunset', weather: 'clouds', intensity: .35 },
+  'clouds-01': { timeOfDay: 'day', weather: 'clear', intensity: .15 },
+  'clouds-02': { timeOfDay: 'day', weather: 'clouds', intensity: .35 },
+  'clouds-03': { timeOfDay: 'day', weather: 'fog', intensity: .5 },
+  'clouds-04': { timeOfDay: 'sunset', weather: 'rain', intensity: .45 },
+  'clouds-05': { timeOfDay: 'sunset', weather: 'overcast', intensity: .55 },
+  'forest-01': { timeOfDay: 'day', weather: 'breeze', intensity: .35 },
+  'forest-02': { timeOfDay: 'sunset', weather: 'windy', intensity: .55 },
+  'forest-03': { timeOfDay: 'dusk', weather: 'rain', intensity: .55 },
+  'forest-04': { timeOfDay: 'dusk', weather: 'heavy-rain', intensity: .72 },
+  'forest-05': { timeOfDay: 'night', weather: 'storm', intensity: 1 },
+};
+
 // Projectile speed returns to the original Balloon tempo. Wind is acceleration,
 // so preserving a similar visible bend across the same distance needs roughly v² compensation.
 const WIND_FORCE_SCALE = (460 / 285) ** 2;
@@ -48,6 +66,7 @@ function level(config) {
     optional: { type: 'accuracy', maxMisses: 2, label: 'Maks. 2 pudła' },
     specials: [],
     objects: [],
+    atmosphere: ATMOSPHERES[config.id] || { timeOfDay: 'day', weather: 'clear', intensity: 0 },
     windZones: windZonesFor(config),
     ...config,
     grid: cells(config.pattern),
