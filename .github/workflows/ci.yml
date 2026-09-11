@@ -7,6 +7,7 @@ on:
       - feat/sky-rescue-v1
       - feat/sky-rescue-v1-wind
       - feat/sky-rescue-v1-pixel
+      - feat/integrated-orb-pass
   pull_request:
 
 jobs:
@@ -26,6 +27,8 @@ jobs:
         run: node wind.test.mjs
       - name: Pixel art contract tests
         run: node pixel-art.test.mjs
+      - name: Orb gameplay pass tests
+        run: node orb-pass.test.mjs
       - name: Authored level integrity tests
         run: node level-integrity.test.mjs
       - name: JavaScript syntax checks
