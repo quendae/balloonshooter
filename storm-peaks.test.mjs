@@ -95,6 +95,13 @@ const bounds = { minX: 12, maxX: 228 };
   assert.equal(shouldTriggerLightning(storm, 4, 0), true);
   assert.equal(shouldTriggerLightning(storm, 5, 1), false);
   assert.equal(shouldTriggerLightning(storm, 7, 1), true);
+
+  const tightened = { firstStrikeAfterShots: 3, intervalShots: 2, spawnCount: [3, 4] };
+  assert.equal(
+    shouldTriggerLightning(tightened, 6, 1),
+    true,
+    'a cadence tightened after its exact threshold must catch up on the next resolved shot',
+  );
 }
 
 {
