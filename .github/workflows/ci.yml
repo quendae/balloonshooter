@@ -33,6 +33,8 @@ jobs:
         run: node orb-rack.test.mjs
       - name: Gameplay polish tests
         run: node gameplay-polish.test.mjs
+      - name: Storm Peaks tests
+        run: node storm-peaks.test.mjs
       - name: Authored level integrity tests
         run: node level-integrity.test.mjs
       - name: JavaScript syntax checks
