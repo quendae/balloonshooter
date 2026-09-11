@@ -38,12 +38,23 @@ export function windAtPoint(windZones = [], x, y) {
   return { x: forceX, y: forceY };
 }
 
-export function stepProjectile(projectile, dt, bounds, windZones = []) {
-  const wind = windAtPoint(windZones, projectile.x, projectile.y);
+export function normalizeWind(wind = null, x = 0, y = 0) {
+  if (Array.isArray(wind)) {
+    const legacy = windAtPoint(wind, x, y);
+    return { forceX: legacy.x, forceY: legacy.y };
+  }
+  return {
+    forceX: Number(wind?.forceX) || 0,
+    forceY: Number(wind?.forceY) || 0,
+  };
+}
+
+export function stepProjectile(projectile, dt, bounds, wind = null) {
+  const force = normalizeWind(wind, projectile.x, projectile.y);
   const next = {
     ...projectile,
-    vx: projectile.vx + wind.x * dt,
-    vy: projectile.vy + wind.y * dt,
+    vx: projectile.vx + force.forceX * dt,
+    vy: projectile.vy + force.forceY * dt,
   };
   next.x = projectile.x + next.vx * dt;
   next.y = projectile.y + next.vy * dt;
@@ -65,13 +76,40 @@ export function velocityFromAngle(angle, speed) {
   };
 }
 
-export function trajectoryPoints({ x, y, vx, vy, bounds, ceilingY, steps = 90, step = 0.018, collides, windZones = [] }) {
+export function trajectoryPoints({
+  x, y, vx, vy, bounds, ceilingY,
+  steps = 90, step = 0.018, collides,
+  wind = null, windZones = null,
+}) {
   const points = [];
   let projectile = { x, y, vx, vy };
+  const effectiveWind = wind ?? windZones;
   for (let i = 0; i < steps; i += 1) {
-    projectile = stepProjectile(projectile, step, bounds, windZones);
+    projectile = stepProjectile(projectile, step, bounds, effectiveWind);
     points.push({ x: projectile.x, y: projectile.y });
     if (projectile.y <= ceilingY || collides(projectile.x, projectile.y)) break;
+  }
+  return points;
+}
+
+export function shortTrajectoryPreview({
+  x, y, vx, vy, bounds, ceilingY, collides, wind = null,
+  maxDistance = 40, step = 0.012, maxSteps = 40,
+}) {
+  const points = [];
+  let projectile = { x, y, vx, vy };
+  const origin = { x, y };
+
+  for (let i = 0; i < maxSteps; i += 1) {
+    const previousVx = projectile.vx;
+    const next = stepProjectile(projectile, step, bounds, wind);
+    const rebounded = Math.sign(previousVx) !== Math.sign(next.vx)
+      && (next.x === bounds.minX || next.x === bounds.maxX);
+    if (rebounded) break;
+    projectile = next;
+    points.push({ x: projectile.x, y: projectile.y });
+    if (projectile.y <= ceilingY || collides(projectile.x, projectile.y)) break;
+    if (Math.hypot(projectile.x - origin.x, projectile.y - origin.y) >= maxDistance) break;
   }
   return points;
 }
