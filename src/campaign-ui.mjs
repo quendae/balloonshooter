@@ -1,7 +1,15 @@
-import { isLevelUnlocked } from './sky-rescue-core.mjs';
+import { isLevelUnlocked, MASTERY_BADGES, MASTERY_IDS } from './sky-rescue-core.mjs';
 
 function starsMarkup(count = 0) {
   return `${'★'.repeat(count)}${'☆'.repeat(Math.max(0, 3 - count))}`;
+}
+
+function masteryMarksMarkup(masteries = []) {
+  const earned = new Set(masteries);
+  return MASTERY_IDS.map((id) => {
+    const badge = MASTERY_BADGES[id];
+    return `<span class="mastery-mark${earned.has(id) ? ' is-earned' : ''}" title="${badge.label}" aria-hidden="true">${badge.symbol}</span>`;
+  }).join('');
 }
 
 export function renderCampaignMap(container, worlds, levels, progress, onSelect) {
@@ -13,14 +21,15 @@ export function renderCampaignMap(container, worlds, levels, progress, onSelect)
 
     const heading = document.createElement('div');
     heading.className = 'world-heading';
-    heading.innerHTML = `<span class="world-icon" aria-hidden="true">${world.icon}</span><div><h2>${world.name}</h2><p>${world.subtitle}</p></div>`;
+    heading.innerHTML = `<span class="world-icon world-icon-${world.id}" aria-hidden="true"><span></span></span><div><h2>${world.name}</h2><p>${world.subtitle}</p></div>`;
     section.append(heading);
 
     const route = document.createElement('div');
     route.className = 'level-route';
     for (const item of levels.filter((level) => level.world === world.id)) {
       const unlocked = isLevelUnlocked(item, levels, progress);
-      const result = progress.levels?.[item.id] || { stars: 0, score: 0 };
+      const result = progress.levels?.[item.id] || { stars: 0, score: 0, masteries: [] };
+      const masteries = result.masteries || [];
       const stop = document.createElement('div');
       stop.className = 'level-stop';
 
@@ -30,8 +39,8 @@ export function renderCampaignMap(container, worlds, levels, progress, onSelect)
       button.disabled = !unlocked;
       button.dataset.state = result.stars > 0 ? 'complete' : unlocked ? 'open' : 'locked';
       button.dataset.boss = String(Boolean(item.boss));
-      button.textContent = item.boss ? '⚡' : String(item.number);
-      button.setAttribute('aria-label', `${item.number}. ${item.name}${result.stars ? `, ${result.stars} gwiazdki` : ''}${unlocked ? '' : ', zablokowany'}`);
+      button.textContent = String(item.number);
+      button.setAttribute('aria-label', `${item.number}. ${item.name}${result.stars ? `, ${result.stars} gwiazdki` : ''}${masteries.length ? `, ${masteries.length} odznaki mastery` : ''}${unlocked ? '' : ', zablokowany'}`);
       if (unlocked) button.addEventListener('click', () => onSelect(item));
 
       const stars = document.createElement('div');
@@ -39,10 +48,15 @@ export function renderCampaignMap(container, worlds, levels, progress, onSelect)
       stars.textContent = starsMarkup(result.stars || 0);
       stars.setAttribute('aria-hidden', 'true');
 
+      const mastery = document.createElement('div');
+      mastery.className = 'level-masteries';
+      mastery.innerHTML = masteryMarksMarkup(masteries);
+      mastery.setAttribute('aria-label', `${masteries.length} z 3 odznak mastery`);
+
       const name = document.createElement('div');
       name.className = 'level-name';
       name.textContent = item.name;
-      stop.append(button, stars, name);
+      stop.append(button, stars, mastery, name);
       route.append(stop);
     }
     section.append(route);
@@ -72,8 +86,26 @@ export function renderBossPips(container, current, total) {
   container.setAttribute('aria-label', `${current} z ${total} faz ukończonych`);
 }
 
+export function renderMasteryBadges(container, masteries = [], newMasteries = []) {
+  const earned = new Set(masteries);
+  const fresh = new Set(newMasteries);
+  container.replaceChildren();
+  for (const id of MASTERY_IDS) {
+    const badge = MASTERY_BADGES[id];
+    const item = document.createElement('div');
+    item.className = `mastery-badge${earned.has(id) ? ' is-earned' : ''}${fresh.has(id) ? ' is-new' : ''}`;
+    item.innerHTML = `<span class="mastery-badge-symbol" aria-hidden="true">${badge.symbol}</span><span><strong>${badge.label}</strong><small>${badge.description}</small></span>`;
+    container.append(item);
+  }
+  container.setAttribute('aria-label', `${masteries.length} z 3 odznak mastery`);
+}
+
 export function totalStars(progress) {
   return Object.values(progress.levels || {}).reduce((sum, result) => sum + (result.stars || 0), 0);
+}
+
+export function totalMasteries(progress) {
+  return Object.values(progress.levels || {}).reduce((sum, result) => sum + (result.masteries?.length || 0), 0);
 }
 
 export function firstPlayableLevel(levels, progress) {
