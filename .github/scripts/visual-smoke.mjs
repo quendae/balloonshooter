@@ -9,7 +9,7 @@ function assert(condition, message) {
 }
 
 async function verifyPage(browser, name, viewport) {
-  const page = await browser.newPage({ viewportSize: viewport });
+  const page = await browser.newPage({ viewport });
   const errors = [];
   page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
   page.on('console', (message) => {
@@ -17,6 +17,8 @@ async function verifyPage(browser, name, viewport) {
   });
 
   await page.goto(BASE, { waitUntil: 'networkidle' });
+  const actualViewport = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+  assert(actualViewport.width === viewport.width && actualViewport.height === viewport.height, `${name}: requested ${viewport.width}x${viewport.height}, got ${actualViewport.width}x${actualViewport.height}`);
   assert(await page.locator('.level-node').count() === 15, `${name}: campaign should render 15 level nodes`);
   assert(await page.locator('#mapScreen').isVisible(), `${name}: map must be visible on boot`);
 
