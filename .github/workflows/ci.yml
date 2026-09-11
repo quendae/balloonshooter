@@ -33,3 +33,29 @@ jobs:
           node --check src/game.mjs
           node --check src/campaign-ui.mjs
           node --check src/app.mjs
+
+  browser-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Playwright
+        run: |
+          npm install --no-save --package-lock=false playwright@latest
+          npx playwright install --with-deps chromium
+      - name: Start static server
+        run: |
+          python3 -m http.server 4173 > /tmp/balloon-http.log 2>&1 &
+          echo $! > /tmp/balloon-http.pid
+      - name: Browser smoke
+        run: node .github/scripts/visual-smoke.mjs
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sky-rescue-screenshots
+          path: artifacts/*.png
+          if-no-files-found: warn
