@@ -29,6 +29,8 @@ jobs:
         run: node pixel-art.test.mjs
       - name: Orb gameplay pass tests
         run: node orb-pass.test.mjs
+      - name: In-playfield orb rack tests
+        run: node orb-rack.test.mjs
       - name: Authored level integrity tests
         run: node level-integrity.test.mjs
       - name: JavaScript syntax checks
