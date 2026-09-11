@@ -64,7 +64,11 @@ async function verifyPage(browser, name, viewport) {
   assert(!(await page.locator('#gameCanvas').isHidden()), `${name}: canvas should be visible`);
 
   const box = await page.locator('#gameCanvas').boundingBox();
-  assert(box && box.width >= Math.min(300, viewport.width - 30), `${name}: canvas is unexpectedly small`);
+  const minimumCanvasWidth = name === 'desktop' ? 600 : Math.min(300, viewport.width - 30);
+  assert(box && box.width >= minimumCanvasWidth, `${name}: canvas width ${box?.width ?? 0}px is below ${minimumCanvasWidth}px`);
+  const queueImage = await page.locator('.queue-shot').first().evaluate((item) => getComputedStyle(item).backgroundImage);
+  assert(queueImage.includes('assets/ball_'), `${name}: shot queue should use the classic smooth balloon assets, got ${queueImage}`);
+
   const gameOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   assert(gameOverflow <= 1, `${name}: game has ${gameOverflow}px horizontal overflow`);
 
@@ -140,7 +144,7 @@ async function verifyPublicPreview(browser) {
   const errors = [];
   page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(`console: ${message.text()}`);
+    if (message.type() === 'error') errors.push(`console: ${message.text()}`));
   });
 
   const response = await page.goto(PUBLIC_PREVIEW, { waitUntil: 'networkidle', timeout: 45_000 });
@@ -161,7 +165,7 @@ try {
   await verifyPage(browser, 'mobile', { width: 390, height: 844 });
   await verifyWorldArt(browser);
   await verifyPublicPreview(browser);
-  console.log('OK: local desktop/mobile pixel UI, world art, audio persistence and public playable CDN preview passed');
+  console.log('OK: local desktop/mobile hybrid retro UI, enlarged playfield, world art, audio persistence and public playable CDN preview passed');
 } finally {
   await browser.close();
 }
