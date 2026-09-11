@@ -15,7 +15,7 @@ import {
 import {
   SHOT_SPEED,
   clampAimAngle,
-  shortAimSegment,
+  shortTrajectoryPreview,
   shouldShowTrajectory,
   stepProjectile,
   toLogicalPoint,
@@ -93,6 +93,7 @@ export class SkyRescueGame {
     this.specialDeck = [...(level.specials || [])];
     this.specialCursor = 0;
     this.aimAngle = -Math.PI / 2;
+    this.currentWind = level.wind ? { ...level.wind } : null;
     this.shakeTime = 0;
     this.shakePower = 0;
     this.flashTime = 0;
@@ -218,11 +219,21 @@ export class SkyRescueGame {
     this.aimAngle = clampAimAngle(Math.atan2(y - this.B.LAUNCH_Y, x - this.B.LW / 2));
   }
 
+  currentWindForAim() {
+    if (this.currentWind) return this.currentWind;
+    if (Array.isArray(this.level?.windZones)) return this.level.windZones;
+    return null;
+  }
+
   shoot() {
     if (this.projectile || this.status !== 'playing' || this.paused || !this.queue.length) return;
     const shot = this.queue.shift();
     const velocity = velocityFromAngle(this.aimAngle, SHOT_SPEED);
-    this.projectile = { ...shot, x: this.B.LW / 2, y: this.B.LAUNCH_Y, ...velocity };
+    const activeWind = this.currentWindForAim();
+    const wind = Array.isArray(activeWind)
+      ? activeWind.map((zone) => ({ ...zone }))
+      : { ...(activeWind || { forceX: 0, forceY: 0 }) };
+    this.projectile = { ...shot, x: this.B.LW / 2, y: this.B.LAUNCH_Y, ...velocity, wind };
     this.fillQueue();
     this.callbacks.onShot?.(shot);
     this.emitState();
@@ -244,19 +255,26 @@ export class SkyRescueGame {
     const ceilingY = this.level ? this.B.rowY(this.ceilRow) - this.B.RAD * .85 : 0;
     const showTrajectory = Boolean(readyToAim && shouldShowTrajectory(this.queue[0]));
     const velocity = velocityFromAngle(this.aimAngle, SHOT_SPEED);
+    const wind = this.currentWindForAim();
+    const bounds = { minX: this.B.RAD, maxX: this.B.LW - this.B.RAD };
     const trajectory = showTrajectory ? trajectoryPoints({
       x: this.B.LW / 2, y: this.B.LAUNCH_Y, ...velocity,
-      bounds: { minX: this.B.RAD, maxX: this.B.LW - this.B.RAD },
+      bounds,
       ceilingY,
       collides: (x, y) => this.collides(x, y),
-      windZones: this.level.windZones || [],
+      wind,
     }) : [];
-    const aimSegment = readyToAim ? shortAimSegment({
+    const shortAim = readyToAim && !showTrajectory ? shortTrajectoryPreview({
       x: this.B.LW / 2,
       y: this.B.LAUNCH_Y,
-      angle: this.aimAngle,
-      length: 36,
-    }) : null;
+      ...velocity,
+      bounds,
+      ceilingY,
+      collides: (x, y) => this.collides(x, y),
+      wind,
+      maxDistance: 40,
+    }) : [];
+    const aimSegment = shortAim.length ? { points: shortAim } : null;
     const shake = !this.reducedMotion && this.shakeTime > 0
       ? this.shakePower * Math.min(1, this.shakeTime / .12)
       : 0;
@@ -267,7 +285,8 @@ export class SkyRescueGame {
       level: this.level, grid: this.grid, objects: this.objects, queue: this.queue,
       projectile: this.projectile, particles: this.particles, falling: this.falling,
       status: this.status, paused: this.paused, ceilRow: this.ceilRow,
-      trajectory, showTrajectory, aimSegment, shake, flash,
+      trajectory, showTrajectory, aimSegment, currentWind: this.currentWind,
+      shake, flash,
     };
   }
 
@@ -275,7 +294,7 @@ export class SkyRescueGame {
     if (!this.projectile) return;
     const bounds = { minX: this.B.RAD, maxX: this.B.LW - this.B.RAD };
     const beforeVx = this.projectile.vx;
-    this.projectile = stepProjectile(this.projectile, dt, bounds, this.level?.windZones || []);
+    this.projectile = stepProjectile(this.projectile, dt, bounds, this.projectile.wind);
     const hitWall = this.projectile.x === bounds.minX || this.projectile.x === bounds.maxX;
     if (hitWall && Math.sign(beforeVx) !== Math.sign(this.projectile.vx)) this.callbacks.onBounce?.();
     const ceilingY = this.B.rowY(this.ceilRow) - this.B.RAD * .85;
