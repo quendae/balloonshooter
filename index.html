@@ -21,10 +21,13 @@
       <span><strong>Balloon</strong><small>Sky Rescue</small></span>
     </button>
     <div class="header-actions">
-      <div class="star-bank" aria-label="Łączna liczba gwiazdek">
-        <span aria-hidden="true">★</span><strong id="totalStars">0</strong><span class="star-bank-max">/ 45</span>
+      <div class="star-bank" id="campaignProgressBank" aria-label="Postęp kampanii">
+        <span class="progress-glyph progress-glyph-stars" aria-hidden="true">★</span><strong id="totalStars">0</strong><span class="star-bank-max">/45</span>
+        <span class="bank-divider" aria-hidden="true"></span>
+        <span class="progress-glyph progress-glyph-mastery" aria-hidden="true">◆</span><strong id="totalMasteries">0</strong><span class="star-bank-max">/45</span>
       </div>
-      <a class="button button-ghost" href="balloon.html">Tryb klasyczny</a>
+      <button class="icon-button sound-button" id="soundButton" type="button" aria-label="Wyłącz dźwięki" aria-pressed="true"><span aria-hidden="true">♪</span></button>
+      <a class="button button-ghost classic-link" href="balloon.html">Tryb klasyczny</a>
     </div>
   </header>
 
@@ -98,6 +101,7 @@
     <div class="result-stars" id="resultStars" aria-label="Zdobyte gwiazdki"></div>
     <strong class="result-score" id="resultScore">0</strong>
     <p id="resultDetail"></p>
+    <div class="result-masteries" id="resultMasteries" aria-label="Odznaki mastery"></div>
     <div class="dialog-actions">
       <button class="button button-ghost" id="resultMapButton" type="button">Mapa</button>
       <button class="button button-secondary" id="retryButton" type="button">Powtórz</button>
