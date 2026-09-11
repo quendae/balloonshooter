@@ -16,7 +16,7 @@ export function shouldTriggerLightning(storm, resolvedShots = 0, strikesSoFar = 
   const first = Math.max(1, Number(storm.firstStrikeAfterShots) || 1);
   const interval = Math.max(1, Number(storm.intervalShots) || 1);
   const expected = first + Math.max(0, Number(strikesSoFar) || 0) * interval;
-  return Number(resolvedShots) === expected;
+  return Number(resolvedShots) >= expected;
 }
 
 function rotateDeterministically(items, rng) {
