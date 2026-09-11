@@ -1,3 +1,11 @@
+export const MASTERY_IDS = ['bank-shot', 'avalanche', 'perfect-aim'];
+
+export const MASTERY_BADGES = {
+  'bank-shot': { label: 'Bank Shot', description: 'Skasuj balony po odbiciu od ściany.', symbol: '↗' },
+  avalanche: { label: 'Avalanche', description: 'Zrzuć co najmniej 6 balonów jednym strzałem.', symbol: '◆' },
+  'perfect-aim': { label: 'Perfect Aim', description: 'Ukończ poziom bez pudła.', symbol: '◎' },
+};
+
 export function createSeededRng(seed = 1) {
   let state = (Number(seed) >>> 0) || 1;
   return function rng() {
@@ -59,16 +67,26 @@ export function scoreTurn({ popped = 0, dropped = 0, combo = 1, objectiveBonus =
   };
 }
 
-export function applyCampaignResult(progress = {}, levelId, stars, score) {
+export function evaluateMasteries({ successfulBankShots = 0, largestDrop = 0, misses = 0 } = {}) {
+  const earned = [];
+  if (Number(successfulBankShots) > 0) earned.push('bank-shot');
+  if (Number(largestDrop) >= 6) earned.push('avalanche');
+  if ((Number(misses) || 0) === 0) earned.push('perfect-aim');
+  return earned;
+}
+
+export function applyCampaignResult(progress = {}, levelId, stars, score, masteries = []) {
   const next = {
     ...progress,
     levels: { ...(progress.levels || {}) },
   };
-  const previous = next.levels[levelId] || { stars: 0, score: 0, completed: false };
+  const previous = next.levels[levelId] || { stars: 0, score: 0, completed: false, masteries: [] };
+  const masterySet = new Set([...(previous.masteries || []), ...masteries.filter((id) => MASTERY_IDS.includes(id))]);
   next.levels[levelId] = {
     stars: Math.max(previous.stars || 0, stars || 0),
     score: Math.max(previous.score || 0, score || 0),
     completed: Boolean(previous.completed || stars > 0),
+    masteries: MASTERY_IDS.filter((id) => masterySet.has(id)),
   };
   return next;
 }
