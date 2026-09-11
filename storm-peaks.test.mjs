@@ -6,6 +6,7 @@ import {
   trajectoryPoints,
   velocityFromAngle,
 } from './src/game-physics.mjs';
+import { windForResolvedShot } from './src/storm-core.mjs';
 
 const bounds = { minX: 12, maxX: 228 };
 
@@ -28,7 +29,7 @@ const bounds = { minX: 12, maxX: 228 };
   assert(points.length >= 2, 'limited aim needs more than one simulated point');
   assert(points.at(-1).x > points[0].x, 'limited aim must visibly curve with rightward wind');
   const distance = Math.hypot(points.at(-1).x - 120, points.at(-1).y - 270);
-  assert(distance <= 44, `limited aim must stay short, got ${distance}`);
+  assert(distance <= 40.001, `limited aim must stay short, got ${distance}`);
 }
 
 {
@@ -53,4 +54,29 @@ const bounds = { minX: 12, maxX: 228 };
   assert(full.some((point, i) => i > 0 && point.x > full[i - 1].x), 'Guide/full simulator must still include post-rebound travel');
 }
 
-console.log('✓ Storm Peaks Task 1: whole-board wind and limited aim contract');
+{
+  const level = {
+    wind: { forceX: 100, forceY: 0 },
+    windSequence: [
+      { forceX: 120, forceY: 0 },
+      { forceX: 120, forceY: 0 },
+      { forceX: -140, forceY: 0 },
+      { forceX: -140, forceY: 0 },
+    ],
+  };
+  assert.deepEqual(windForResolvedShot(level, 0), { forceX: 120, forceY: 0 });
+  assert.deepEqual(windForResolvedShot(level, 1), { forceX: 120, forceY: 0 });
+  assert.deepEqual(windForResolvedShot(level, 2), { forceX: -140, forceY: 0 });
+  assert.deepEqual(windForResolvedShot(level, 6), { forceX: -140, forceY: 0 });
+}
+
+{
+  const frozen = { forceX: 90, forceY: -10 };
+  const changedLevelWind = { forceX: -250, forceY: 0 };
+  const start = { x: 120, y: 270, vx: 0, vy: -SHOT_SPEED, wind: frozen };
+  const live = stepProjectile(start, .1, bounds, start.wind);
+  const wrong = stepProjectile(start, .1, bounds, changedLevelWind);
+  assert.notEqual(live.vx, wrong.vx, 'launched projectile must remain bound to its frozen wind');
+}
+
+console.log('✓ Storm Peaks Tasks 1-2: wind physics, limited aim, and frozen sequences');
