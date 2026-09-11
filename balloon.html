@@ -1,0 +1,1667 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Balonowy Strzelec</title>
+<style>
+  html, body {
+    margin: 0; height: 100%; background: #0b0e1a; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    font-family: monospace;
+  }
+  canvas {
+    display: block;
+    /* Kursor systemowy UKRYTY: rysujemy własny celownik (inaczej były DWA
+       krzyżyki — jeden w miejscu myszki, drugi na końcu toru). */
+    cursor: none;
+    image-rendering: pixelated;
+    touch-action: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<script src="balloon.js"></script>
+<script>
+"use strict";
+const B = BALLOON;
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+let SCALE = 1;                // skala CAŁKOWITA — tylko wtedy pixel art jest ostry
+
+// ===== Skalowanie canvasu =====
+// Bitmapa jest ZAWSZE B.LW*S na B.LH*S i wyświetlana 1:1 (bez skalowania w CSS).
+// Wcześniej canvas 720x960 był ściskany przez CSS do ~468x625, czyli o czynnik
+// 0.65 — przy `image-rendering: pixelated` oznacza to, że część pikseli ma 1px
+// a część 2px: obraz się rozmywa, a na tekście HUD pojawiają się tęczowe
+// artefakty (zauważone przez model widzący obrazy w recenzji zrzutów).
+// Wybieramy największą skalę całkowitą mieszczącą się w oknie. Jeśli kolejny
+// stopień wystaje tylko o pusty pas ziemi na dole (ostatnie ~18px logicznych
+// nie zawiera nic istotnego), pozwalamy na niego — bez tego gra na typowym
+// oknie 625px wysokości spadałaby z 2x na 1x, czyli była dużo mniejsza.
+const SAFE_BOTTOM = 18;       // ile px logicznych na dole jest puste
+function setupCanvas() {
+  const fit = Math.min(window.innerWidth / B.LW, window.innerHeight / B.LH);
+  let s = Math.max(1, Math.floor(fit));
+  const next = s + 1;
+  const overflow = B.LH * next - window.innerHeight;
+  if (B.LW * next <= window.innerWidth && overflow > 0 && overflow <= SAFE_BOTTOM * next) s = next;
+  SCALE = s;
+  cv.width = B.LW * s;
+  cv.height = B.LH * s;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.scale(s, s);
+  // gdy bitmapa wystaje poza okno, przytwierdzamy ją do góry, żeby obcięło
+  // wyłącznie pusty pas na dole (HUD u góry musi zostać widoczny)
+  document.body.style.alignItems = cv.height > window.innerHeight ? "flex-start" : "center";
+}
+setupCanvas();
+window.addEventListener("resize", setupCanvas);
+
+// ===== Palety kolorów balonów =====
+const PAL = [
+  null,
+  { base: "#ff4455", dark: "#9c1422", light: "#ff9aa5" }, // czerwony
+  { base: "#a05cf0", dark: "#5a2a9c", light: "#cfa8ff" }, // fiolet
+  { base: "#ffd93d", dark: "#b09000", light: "#fff0a0" }, // żółty
+  { base: "#4cc94c", dark: "#157d2a", light: "#a8f0a0" }, // zielony
+  { base: "#4da3ff", dark: "#164e9c", light: "#a8d8ff" }, // niebieski
+  { base: "#ff6fb3", dark: "#a32a68", light: "#ffb3d8" }, // róż
+];
+const NBALL = 6;   // max kolorów (indeks 1..6)
+// kulka ma promień równy połowie rozstawu komórek (PH=24) => kulki
+// na planszy dokładnie się dotykają, zero szpar
+const SPR_SIZE = 24;
+const SPR_R = 12;
+const BALL_SPEED = 460;       // prędkość pocisku
+const WALL_M = 4;             // margines odbicia od ścian bocznych (px)
+// Wysokość paska HUD. Sufit (górna krawędź rzędu 0) jest na y=36, więc
+// HUD musi być niższy niż 36, żeby sufit był WIDOCZNY nad balonami.
+// Przy 34 zostawało 2px — sufit praktycznie znikał za HUD-em.
+const HUD_H = 26;
+
+// ===== Sprite balona (pixelowy, bez AA) =====
+const spriteCache = [];
+function makeSprite(p) {
+  const S = SPR_SIZE, R = SPR_R, c = document.createElement("canvas");
+  c.width = S; c.height = S;
+  const g = c.getContext("2d");
+  const cx = S / 2, cy = S / 2;
+  for (let py = 0; py < S; py++) for (let px = 0; px < S; px++) {
+    const d = Math.hypot(px + 0.5 - cx, py + 0.5 - cy);
+    let col = null;
+    if (d <= R) {
+      col = p.base;
+      if (d > R - R * 0.16) col = p.dark;                        // obrys w ciemnym odcieniu
+      // Błysk: recenzja obrazu wykazała, że był ZA DUŻY — biała plama była
+      // najgłośniejszym elementem planszy, głośniejszym niż sam kolor kuli,
+      // który trzeba rozpoznać. Zmniejszony i odsunięty bardziej w róg.
+      const hc = Math.hypot(px + 0.5 - (cx - R * 0.37), py + 0.5 - (cy - R * 0.43));
+      if (hc < R * 0.28) col = p.light;                          // połysk
+      if (hc < R * 0.12) col = "#fff";                           // mały, ostry rdzeń
+    }
+    if (col) { g.fillStyle = col; g.fillRect(px, py, 1, 1); }
+  }
+  return c;
+}
+for (let i = 1; i <= NBALL; i++) spriteCache[i] = makeSprite(PAL[i]);
+
+// ===== Sprite'y balonów: proceduralne (NIE render 3D) =====
+// Render z Blendera (assets/ball_N.png, robiony .opencode/blender_balls.py)
+// został oceniony jako gorszy: model widzący obrazy opisał kule jako
+// "galaretowate/przezierne", a ciemny sierp na dole zlewał się w czarne szwy
+// tam, gdzie balony się stykają — czyli dokładnie tam, gdzie siatka heksowa
+// ma ich najwięcej. Sprite proceduralny ma twardą, w pełni nieprzezroczystą
+// krawędź, płaski kolor i wyraźny błysk, więc sąsiadujące kule nie zlewają się
+// i kolor czyta się natychmiast. Render 3D zostaje w assets/ na wypadek, gdyby
+// wrócić do niego po dopracowaniu cieniowania.
+const USE_3D_SPRITES = false;
+const SPRITE_DIR = "assets/";
+if (USE_3D_SPRITES) for (let i = 1; i <= NBALL; i++) {
+  const img = new Image();
+  img.onload = () => { spriteCache[i] = img; };
+  img.onerror = () => {};          // zostaje sprite proceduralny
+  img.src = SPRITE_DIR + "ball_" + i + ".png";
+}
+
+// ===== Stan gry =====
+let state = "menu";           // menu | play | over
+let grid = new Map();         // "c,r" -> color (logika w balloon.js)
+let level = 1;
+let score = 0;
+let best = 0;
+try { best = +(localStorage.getItem("baloonBest") || 0); } catch (e) {}
+let queue = [];               // nadchodzące kolory pocisków
+let mouse = { x: B.LW / 2, y: B.LH * 0.8 };
+let launcher = { x: B.LW / 2, y: B.LAUNCH_Y };
+let proj = null;              // aktywny pocisk {x,y,vx,vy,color}
+let particles = [];           // efekty pęknięcia
+let floaters = [];            // spadające balony {c,r,x,y,vy,color}
+let banner = { text: "", t: 0, dur: 0 };
+let fireLock = 0;             // czas blokady między strzałami
+let muzzle = 0;               // błysk lufy (0..1)
+let shake = 0;                // wstrząs ekranu (px)
+let lastT = 0;
+let flash = [];               // eksplozje pęknięć (efekt) {x,y,color,t}
+let recoil = 0;               // odrzut lufy (0..1)
+let ammoT = 1;                // animacja wsuwania kuli w gniazdo (0..1, 1 = koniec)
+let soft = new Map();         // softbody: "c,r" -> {ox,oy,vx,vy} drgania sprężyste
+let spawns = [];              // kolejka rodzących się kulek {c,r,color,delay}
+let popIn = new Map();        // "c,r" -> faza (0..1) animacji powstawania
+let squash = new Map();       // "c,r" -> faza (0..1) squash & stretch przy pęknięciu
+
+// ===== Nowe mechaniki: combo, opadający sufit, zwolnione tempo =====
+let combo = 0;                // udane strzały z rzędu (mnożnik punktów)
+let bestCombo = 0;            // najdłuższa seria w tej grze (statystyki)
+let shotsLeft = 0;            // strzały do opadnięcia sufitu
+let shotsPerDrop = 10;        // ile strzałów na jeden opad (wg poziomu)
+let ceilingH = 0;             // aktualne zsunięcie sufitu w px (0..PV)
+let ceilAnim = 0;             // animacja opadu (0..1, 1 = spoczynek)
+// Rząd, w którym sufit TRZYMA balony. Start = 0. Opada razem z planszą przy
+// każdym `dropCeiling` — dzięki temu po opadzie balony nadal wiszą na
+// suficie (a nie "w powietrzu"), a jednocześnie odcięcie od sufitu nadal
+// strąca je poprawnie. Patrz topConnected() w balloon.js.
+let ceilRow = 0;
+let slowmo = 0;               // pozostały czas zwolnionego tempa (s)
+let pops = 0;                 // statystyki poziomu: pęknięte balony
+let drops = 0;                // statystyki poziomu: strącone balony
+// Składniki wyniku poziomu (dokument 3.8/10.2) — pokazywane na ekranie statystyk,
+// żeby gracz widział, ZA CO dostał punkty, a nie tylko sumę.
+let runTally = { popScore: 0, dropScore: 0, bonusScore: 0, objectiveBonus: 0, leftoverBonus: 0, cascades: 0, bestLabel: "" };
+let statsT = 0;               // licznik animacji ekranu statystyk
+let lastStats = null;         // dane ekranu statystyk
+let levelShots = 0;           // strzały w tym poziomie
+let levelStart = 0;           // czas startu poziomu (do statystyk)
+
+const rnd = (n) => Math.floor(Math.random() * n);
+
+// ===== Kolejka kolorów =====
+// Kolejka przesuwa się o jedną pozycję PRZY STRZALE (fire: shift + pushNext).
+// Po strzale NIE WOLNO jej przelosowywać — gracz widzi "NASTĘPNA" i planuje
+// pod nią (patrz purgeDeadColors).
+//
+// Ochrona przed niesprawiedliwą kolejką (dokument 9.2): nowy kolor losujemy
+// z PRIORYTETEM dla kolorów, którymi da się dobić do grupy 3. To nie znaczy
+// "zawsze idealny kolor" — dopóki jest kilka użytecznych, wybór jest losowy,
+// więc napięcie i adaptacja zostają.
+function refillQueue() {
+  const a = B.pickPlayableColor(grid);
+  if (!a) { queue = []; return; }
+  const b = B.pickPlayableColor(grid, [a]);
+  queue = [a, b || a];
+}
+// Kolejny kolor po wystrzeleniu — z użytecznych, z wykluczeniem koloru, który
+// już trzymamy w drugim gnieździe (żadnych zdublowanych par).
+function pushNext() {
+  const held = queue[0];
+  const nxt = B.pickPlayableColor(grid, held !== undefined ? [held] : null);
+  queue.push(nxt || held || 1);
+}
+
+
+function drawBall(color, x, y, scale) {
+  const s = (scale === undefined ? 1 : scale) * SPR_SIZE;
+  ctx.drawImage(spriteCache[color], x - s / 2, y - s / 2, s, s);
+}
+
+// Jedno źródło prawdy dla pozycji pionowej rzędu: sufit może opadać, więc
+// KAŻDE miejsce (kolizje, rysowanie, cząsteczki) musi używać tego offsetu.
+function rowY(r) { return B.rowY(r) + ceilingH; }
+
+// Próg kolizji = odległość dotknięcia sprite'ów: promień pocisku (12)
+// plus promień balona (12) = 24. Kulki na planszy stykają się bez szpar
+// (SPR_R = PH/2), a plaster miodu nie ma żadnych korytarzy szerszych niż
+// trójkątne luki; ich środek leży ~13.9px od środków < 24, więc pełny
+// klaster jest nieprzelotowy. Przyklejenie dokładnie w momencie
+// wizualnego dotknięcia, bez marginesu i bez tunelowania.
+const HIT_D = B.RAD * 2;
+const HIT_D2 = HIT_D * HIT_D;
+// Próg ślizgu: uderzenie w balon pod kątem < 32° do STYCZNEJ (czyli |n·v| <
+// sin32° ≈ 0.53) to obcierka — kulka nie przykleja się i nie odbija jak od
+// ściany, tylko ŚLIZGA się po powierzchni. Kąt liczony do stycznej, nie do
+// normalnej: 0° = lot równolegle do powierzchni (czysty ślizg).
+const GRAZE = Math.sin(32 * Math.PI / 180);
+// Jaką część prędkości normalnej kulka oddaje przy ślizgu (0 = czysty ślizg
+// bez odbicia, 1 = pełne odbicie lustrzane). Mała wartość = "miękkie"
+// odepchnięcie od powierzchni, dzięki czemu kulka nie odbija się chaotycznie.
+const GRAZE_REST = 0.22;
+// Ślizg nie może trwać w nieskończoność: po tylu obcierkach kulka osiada.
+const GRAZE_MAX = 8;
+// Zwraca balon, w który uderza pocisk (o ile jest w zasięgu), plus informację
+// czy to ślizg (uderzenie pod kątem < 32° do stycznej => obcierka, leci dalej).
+function hitBalloon(p) {
+  let found = null;
+  for (const k of grid.keys()) {
+    const [c, r] = B.split(k);
+    const dx = p.x - B.colX(c, r), dy = p.y - rowY(r);
+    const d2 = dx * dx + dy * dy;
+    if (d2 < HIT_D2) {
+      const d = Math.sqrt(d2) || 1;
+      const sp = Math.hypot(p.vx, p.vy) || 1;
+      const dot = (dx * p.vx + dy * p.vy) / (d * sp);   // n·v (normalna do pocisku)
+      // |dot| mały => lot prawie styczny do powierzchni balonu => ślizg.
+      const graze = Math.abs(dot) < GRAZE;
+      if (!found || d2 < found.d2) found = { c, r, d, graze, nx: dx / d, ny: dy / d };
+    }
+  }
+  return found;
+}
+
+// ===== Softbody (miękkie kulki): sprężyste przemieszczenia =====
+// Tani model: każda kulka ma sprężynę do swojej komórki; impuls (uderzenie,
+// pęknięcie sąsiada) nadaje prędkość, sprężyna zawraca. Bez solvera siatki.
+const SOFT_K = 90, SOFT_D = 6, SOFT_MAX = 4;   // sztywność, tłumienie, limit wychylenia
+function softGet(k) {
+  let s = soft.get(k);
+  if (!s) { s = { ox: 0, oy: 0, vx: 0, vy: 0 }; soft.set(k, s); }
+  return s;
+}
+// Impuls od punktu (x,y) na wszystkie kulki w promieniu r.
+function softPunch(x, y, r, force) {
+  for (const k of grid.keys()) {
+    const [c, rr] = B.split(k);
+    const cx = B.colX(c, rr), cy = rowY(rr);
+    const dx = cx - x, dy = cy - y;
+    const d = Math.hypot(dx, dy);
+    if (d < r) {
+      const f = (1 - d / r) * force;
+      const s = softGet(k);
+      s.vx += (dx / (d || 1)) * f;
+      s.vy += (dy / (d || 1)) * f;
+    }
+  }
+}
+function softUpdate(dt) {
+  for (const [k, s] of soft) {
+    if (!grid.has(k)) { soft.delete(k); continue; }
+    s.ox += s.vx * dt; s.oy += s.vy * dt;
+    s.vx += (-SOFT_K * s.ox - SOFT_D * s.vx) * dt;
+    s.vy += (-SOFT_K * s.oy - SOFT_D * s.vy) * dt;
+    if (Math.abs(s.ox) > SOFT_MAX) { s.ox = Math.sign(s.ox) * SOFT_MAX; s.vx = 0; }
+    if (Math.abs(s.oy) > SOFT_MAX) { s.oy = Math.sign(s.oy) * SOFT_MAX; s.vy = 0; }
+    if (Math.abs(s.ox) < 0.05 && Math.abs(s.oy) < 0.05 && Math.abs(s.vx) < 0.1 && Math.abs(s.vy) < 0.1) soft.delete(k);
+  }
+}
+
+// ===== Audio =====
+let AC = null;
+function tone(f, d, type, vol, slide) {
+  try {
+    if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type || "square"; o.frequency.value = f;
+    if (slide) o.frequency.exponentialRampToValueAtTime(slide, AC.currentTime + d);
+    g.gain.setValueAtTime(vol || 0.05, AC.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, AC.currentTime + d);
+    o.connect(g); g.connect(AC.destination);
+    o.start(); o.stop(AC.currentTime + d);
+  } catch (e) {}
+}
+const sfx = {
+  shoot: () => tone(500, 0.08, "square", 0.03, 200),
+  pop:   () => tone(700, 0.12, "sawtooth", 0.05, 200),
+  drop:  () => tone(220, 0.2, "triangle", 0.05, 60),
+  win:   () => { tone(520, .1, "square", .05); setTimeout(() => tone(660, .1, "square", .05), 90); setTimeout(() => tone(880, .2, "square", .05), 180); },
+  over:  () => tone(300, 0.5, "sawtooth", 0.05, 80),
+  // NOWE: kasacja dostaje akord rosnący z rozmiarem i wysokością combo —
+  // gracz SŁYSZY, że seria rośnie, bez patrzenia na licznik.
+  popFor: (n, c) => {
+    const step = Math.min(7, Math.max(0, (c || 1) - 1));
+    const root = 520 * Math.pow(1.06, step) * Math.pow(1.045, Math.min(5, n));
+    const voices = Math.min(4, 1 + Math.floor(n / 2));
+    for (let i = 0; i < voices; i++) {
+      const f = root * (1 + i * 0.26);
+      setTimeout(() => tone(f, 0.14 + i * 0.03, i === 0 ? "square" : "triangle", 0.045, f * 0.55), i * 32);
+    }
+    if (n >= 8) setTimeout(() => tone(root * 2, 0.3, "square", 0.04, root), 90);
+  },
+  // Klik wyboru na ekranach — krótki, neutralny.
+  ui: () => tone(760, 0.06, "square", 0.03, 900),
+};
+
+// ===== Muzyka: prosty sekwencer z narastającym napięciem =====
+// Bas + arpeggio. Tempo i głośność basu rosną razem z combo (music.tension),
+// więc im lepiej graczowi idzie, tym bardziej muzyka go niesie.
+const music = {
+  on: true, t: 0, step: 0, tension: 0,
+  // pentatonika molowa — bezpieczna harmonicznie w każdej kombinacji
+  seq: [0, 3, 5, 7, 10, 12, 10, 7],
+  root: 110,
+  update(dt) {
+    if (!this.on || !AC) return;
+    // napięcie powoli opada, żeby muzyka nie została "wściekła" na zawsze
+    this.tension = Math.max(0, this.tension - dt * 0.12);
+    const bpm = 104 + this.tension * 58;
+    const beat = 60 / bpm / 2;                 // ósemki
+    this.t += dt;
+    while (this.t >= beat) {
+      this.t -= beat;
+      this.tick();
+    }
+  },
+  tick() {
+    const i = this.step++ % 8;
+    const semis = this.seq[i];
+    const f = this.root * Math.pow(2, semis / 12);
+    // bas na mocnych krokach
+    if (i % 2 === 0) tone(this.root / 2, 0.22, "triangle", 0.035 + this.tension * 0.03, this.root / 2);
+    // arpeggio cichsze, ale jaśniejsze wraz z napięciem
+    tone(f * 2, 0.1, "square", 0.012 + this.tension * 0.014, f * 2.02);
+    // werbel na ostatnim kroku taktu
+    if (i === 7) tone(180, 0.06, "sawtooth", 0.02 + this.tension * 0.02, 90);
+  },
+};
+
+// ===== Start biegu =====
+function startRun() {
+  state = "play"; level = 1; score = 0;
+  bestCombo = 0; combo = 0; music.tension = 0; slowmo = 0;
+  buildLevel();
+  sfx.ui();
+}
+
+// ===== Generowanie poziomu =====
+// NOWE: kształty plansz zamiast pełnego prostokąta — daje to od razu
+// odcięte skupiska do strącenia i sprawia, że poziomy wyglądają różnie.
+function shapeMask(name, c, r, rows) {
+  const mid = (B.rowCols(r) - 1) / 2;
+  const d = Math.abs(c - mid);
+  switch (name) {
+    case "łuk":    return d <= mid - r * 0.55 || r >= rows - 2;
+    case "wieże":  return (c < 2 || c > B.rowCols(r) - 3) || r >= rows - 2;
+    case "diament": return d <= mid - Math.abs(r - (rows - 1) / 2) * 1.15;
+    case "kielich": return d >= r * 0.5 || r <= 1;
+    case "szachownica": return (c + r) % 2 === 1 || r === 0;
+    default: return true;
+  }
+}
+const SHAPES = ["pełna", "łuk", "wieże", "szachownica", "diament", "pełna", "kielich"];
+
+function buildLevel() {
+  grid.clear();
+  const rows = B.levelRows(level);
+  const cols = B.levelColors(level);
+  const shape = SHAPES[(level - 1) % SHAPES.length];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < B.rowCols(r); c++) {
+      if (!shapeMask(shape, c, r, rows)) continue;
+      B.setBalloon(grid, c, r, 1 + rnd(cols));
+    }
+  }
+  proj = null; particles.length = 0; floaters.length = 0; flash.length = 0; soft.clear();
+  spawns.length = 0; popIn.clear(); squash.clear();
+  combo = 0; shotsPerDrop = B.shotsPerDrop(level); shotsLeft = shotsPerDrop;
+  ceilingH = 0; ceilAnim = 1; slowmo = 0; ceilRow = 0;
+  pops = 0; drops = 0; levelShots = 0; levelStart = Date.now();
+  runTally = { popScore: 0, dropScore: 0, bonusScore: 0, objectiveBonus: 0, leftoverBonus: 0, cascades: 0, bestLabel: "" };
+  refillQueue();
+  banner = { text: "POZIOM " + level, t: 0, dur: 1.4, sub: shape + " · " + cols + " kolory" };
+}
+
+// ===== Punkty =====
+function addScore(n, x, y) {
+  score += n;
+  if (score > best) { best = score; try { localStorage.setItem("baloonBest", best); } catch (e) {} }
+  if (x !== undefined) {
+    particles.push({ kind: "text", x, y, txt: "+" + n, life: 0.9, big: n >= 100 });
+  }
+}
+function popText(txt, x, y, col, big) {
+  particles.push({ kind: "text", x, y, txt, life: 1.15, col: col, big: big });
+}
+
+// ===== Strzał =====
+const MUZZLE = 16;            // odległość startu pocisku od środka wyrzutni
+                              // (dawniej 26 — lufa armaty; teraz kulka rusza
+                              // z widocznego miejsca, tuż przed rysowaną kulą)
+function aimAngle() {
+  const a = Math.atan2(mouse.y - launcher.y, mouse.x - launcher.x);
+  return Math.max(-Math.PI + 0.08, Math.min(-0.08, a)); // tylko do góry
+}
+function fire() {
+  if (state !== "play" || proj || fireLock > 0 || grid.size === 0) return;
+  const a = aimAngle();
+  const sp = BALL_SPEED;
+  proj = {
+    x: launcher.x + Math.cos(a) * MUZZLE, y: launcher.y + Math.sin(a) * MUZZLE,
+    vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, color: queue.shift(),
+  };
+  pushNext();
+  levelShots++;
+  fireLock = 0.03;
+  ammoT = 0;                      // kula zsuwa się w gniazdo
+  muzzle = 1;                     // błysk lufy
+  recoil = 1;                     // odrzut lufy
+  shake = Math.max(shake, 1);     // drobny odrzut ekranu
+  sfx.shoot();
+  // Muzyka rośnie razem z combo — sprzężenie zwrotne presji i nagrody.
+  music.tension = Math.min(1, combo / 6);
+}
+function update(dt0) {
+  // Slow-motion po dużej kasacji: świat zwalnia, gracz widzi lawinę.
+  let dt = dt0;
+  if (slowmo > 0) { slowmo -= dt0; dt = dt0 * 0.35; }
+  if (banner.t < banner.dur) banner.t += dt0;
+  if (fireLock > 0) fireLock -= dt0;
+  muzzle = Math.max(0, muzzle - dt0 * 8);
+  shake = Math.max(0, shake - dt0 * 18);
+  recoil = Math.max(0, recoil - dt0 * 8);
+  ammoT = Math.min(1, ammoT + dt0 * 5);
+  statsT += dt0;
+  softUpdate(dt);
+  music.update(dt0);
+
+  // Opad sufitu: animacja zsunięcia o rząd (PV px) w dół.
+  if (ceilAnim < 1) ceilAnim = Math.min(1, ceilAnim + dt0 * 2.6);
+  ceilingH = (1 - ceilAnim) * -B.PV;
+
+  // squash & stretch — faza 0..1 po pęknięciu
+  for (const [k, p] of squash) {
+    const np = p + dt * 4.5;
+    if (np >= 1) squash.delete(k); else squash.set(k, np);
+  }
+
+  // rodzące się kulki (organic cluster)
+  for (let i = spawns.length - 1; i >= 0; i--) {
+    const sp = spawns[i];
+    sp.delay -= dt;
+    if (sp.delay <= 0) {
+      spawns.splice(i, 1);
+      if (!grid.has(B.key(sp.c, sp.r)) && B.supported(grid, sp.c, sp.r, ceilRow)) {
+        B.setBalloon(grid, sp.c, sp.r, sp.color);
+        popIn.set(B.key(sp.c, sp.r), 0);
+        softPunch(B.colX(sp.c, sp.r), rowY(sp.r), B.PH * 1.6, 30);
+        if (sp.r >= B.MAXROW || dangerOver()) { gameOver(); return; }
+      }
+    }
+  }
+  for (const [k, p] of popIn) {
+    const np = p + dt * 6;
+    if (np >= 1) popIn.delete(k); else popIn.set(k, np);
+  }
+
+  // pocisk w locie
+  if (proj) {
+    proj.age = (proj.age || 0) + dt;
+    const sub = Math.max(1, Math.round((BALL_SPEED * dt) / 4));
+    for (let s = 0; s < sub && proj; s++) {
+      proj.x += (proj.vx * dt) / sub;
+      proj.y += (proj.vy * dt) / sub;
+      // odbicia od bocznych ścian (fizyka)
+      if (proj.x < WALL_M) { proj.x = WALL_M + (WALL_M - proj.x); proj.vx = -proj.vx; }
+      if (proj.x > B.LW - WALL_M) { proj.x = B.LW - WALL_M - (proj.x - (B.LW - WALL_M)); proj.vx = -proj.vx; }
+      // Sufit: jego powierzchnia to GÓRNA krawędź rzędu ceilRow, a pocisk ma
+      // promień B.RAD, więc jego środek może dojść najwyżej do rowY(ceilRow).
+      // Wcześniej granica była o CAŁY RZĄD niżej (środek rzędu 1), dlatego
+      // kulka odbijała się w środku pola, "w powietrzu", i to często.
+      const ceilY = rowY(ceilRow);
+      if (proj.y < ceilY) { proj.y = ceilY + (ceilY - proj.y); proj.vy = -proj.vy; }
+      else if (proj.y > B.LH - 8) { proj.y = B.LH - 8 - (proj.y - (B.LH - 8)); proj.vy = -proj.vy; }
+      const p = proj;
+      const hit = hitBalloon(p);
+      const tooManyGrazes = (p.grazes || 0) > GRAZE_MAX;
+      if (hit && hit.graze && !tooManyGrazes) {
+        // OBCIERKA = ŚLIZG po powierzchni balona. Zdejmujemy tylko składową
+        // normalną (z niewielkim odbiciem), a styczna zostaje — kulka jedzie
+        // dalej wzdłuż ściany z kulek, tracąc przy tym trochę energii.
+        // (Wcześniej było pełne odbicie lustrzane: przy płytkim kącie dawało
+        // szarpnięcie w bok zamiast płynnego zsunięcia się po powierzchni.)
+        const sp2 = Math.hypot(p.vx, p.vy) || 1;
+        const vn = (p.vx * hit.nx + p.vy * hit.ny) / sp2;   // cos(kąt do normalnej)
+        if (vn < 0) {
+          const k = -(1 + GRAZE_REST) * vn * sp2;           // składowa normalna do zdjęcia
+          p.vx += k * hit.nx;
+          p.vy += k * hit.ny;
+        }
+        // wypchnij z nałożenia, żeby nie tkwiała w balonie
+        const need = HIT_D + 0.5 - hit.d;
+        if (need > 0) { p.x += hit.nx * need; p.y += hit.ny * need; }
+        p.grazes = (p.grazes || 0) + 1;
+        // iskra tarcia w punkcie styku — widać, że kulka się ślizga
+        const tx = p.x - hit.nx * B.RAD, ty = p.y - hit.ny * B.RAD;
+        particles.push({
+          kind: "dot", color: p.color, life: 0.2, trail: 0,
+          x: tx, y: ty, vx: -hit.ny * 26, vy: hit.nx * 26,
+        });
+      } else {
+        const stop = (hit != null) || (proj.age > 3) || tooManyGrazes;
+        if (stop) {
+          // fallback: globalny snap (nie lokalny), żeby kulka zawsze miała gdzie wpaść
+          const snap = B.findSnap(grid, p.x, p.y, 9999, ceilRow);
+          if (!snap) { gameOver(); proj = null; break; }
+          const [c, r] = snap;
+          softPunch(p.x, p.y, B.PH * 1.8, 55);     // miękkie uderzenie w okoliczne kulki
+          B.setBalloon(grid, c, r, p.color);
+          resolveLanding(c, r);
+          proj = null;
+        }
+      }
+    }
+    if (proj) {
+      particles.push({ kind: "dot", x: proj.x, y: proj.y, color: proj.color, life: 0.3, trail: 1, vx: 0, vy: 0 });
+    }
+  }
+
+  // cząsteczki / spadające / teksty
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const pt = particles[i];
+    if (pt.kind === "text") { pt.life -= dt; if (pt.life <= 0) particles.splice(i, 1); continue; }
+    pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.vy += 180 * dt; pt.life -= dt;
+    if (pt.life <= 0) particles.splice(i, 1);
+  }
+  for (let i = flash.length - 1; i >= 0; i--) {
+    flash[i].t += dt;
+    if (flash[i].t >= flash[i].dur) flash.splice(i, 1);
+  }
+  for (let i = floaters.length - 1; i >= 0; i--) {
+    const f = floaters[i];
+    f.x += Math.sin((f.y + i) * 0.2) * 0.3; f.y += f.vy * dt; f.vy += 220 * dt;
+    if (f.y > B.LH + 40) floaters.splice(i, 1);
+  }
+}
+
+function resolveLanding(c, r) {
+  // kolory przed usunięciem (potrzebne do animacji spadania)
+  const colorOf = new Map();
+  for (const k of grid.keys()) colorOf.set(k, grid.get(k));
+  const res = B.settle(grid, c, r, ceilRow);
+  const cx = B.colX(c, r), cy = rowY(r);
+  // cząsteczki w miejscu pęknięć
+  for (const k of res.popped) {
+    const [cc, rr] = B.split(k);
+    const x = B.colX(cc, rr), y = rowY(rr);
+    const col = colorOf.get(k);
+    const n = 6 + rnd(6);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const sp = 40 + Math.random() * 90;
+      particles.push({
+        x, y,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30,
+        life: 0.35 + Math.random() * 0.5, kind: "dot", color: col, trail: 0,
+      });
+    }
+    flash.push({ x, y, color: col, t: 0, dur: 0.25 });   // flesz pęknięcia
+    squash.set(k, 0);                                     // squash & stretch
+    softPunch(x, y, B.PH * 1.5, 40);                      // szarpnięcie sąsiadów
+  }
+  // spadające balony
+  for (const k of res.dropped) {
+    const [cc, rr] = B.split(k);
+    floaters.push({ x: B.colX(cc, rr), y: rowY(rr), vy: 30, color: colorOf.get(k) });
+  }
+
+  const hit = res.popped.length > 0 || res.dropped.length > 0;
+  // Wynik rozbity na SKŁADNIKI (rekomendacja dokumentu 3.8/10.2): dzięki temu
+  // da się balansować grę bez przepisywania systemu i pokazać graczowi,
+  // ZA CO dostał punkty. `runTally` zbiera sumy na potrzeby ekranu statystyk.
+  const tally = {
+    popped: res.popped.length,
+    dropped: res.dropped.length,
+    combo: combo,
+    multiplier: 1,
+    popScore: 0,
+    dropScore: 0,
+    comboScore: 0,
+    bonusScore: 0,
+    total: 0,
+    label: "",
+  };
+  if (hit) {
+    // ===== Combo + mnożnik + bonusy (logika w balloon.js) =====
+    combo++;
+    if (combo > bestCombo) bestCombo = combo;
+    const sc = B.scoreShot(res.popped.length, res.dropped.length, combo);
+    tally.multiplier = sc.mult;
+    tally.popScore = Math.round(res.popped.length * 10 * sc.mult);
+    tally.dropScore = Math.round(res.dropped.length * 20 * sc.mult);
+    tally.comboScore = 0;
+    tally.bonusScore = sc.bonus;
+    tally.total = sc.total;
+    addScore(sc.total, cx, cy - 10);
+    pops += res.popped.length;
+    drops += res.dropped.length;
+    // Akumulacja składników wyniku na potrzeby ekranu statystyk.
+    runTally.popScore += tally.popScore;
+    runTally.dropScore += tally.dropScore;
+    runTally.bonusScore += tally.bonusScore;
+    if (tally.label && tally.label !== "POP") runTally.bestLabel = tally.label;
+    if (res.dropped.length >= 3) runTally.cascades++;
+    // Etykiety: mnożnik i nazwy wyczynów — czytelna nagroda za ryzyko.
+    // Progi komunikatów wg dokumentu 10.1 (POP/GREAT/SUPER/MEGA POP/AVALANCHE).
+    if (sc.mult > 1) popText("x" + (Math.round(sc.mult * 10) / 10), cx, cy - 24, "#ffd93d", false);
+    if (res.popped.length >= 8) { popText("MEGA POP!", cx, cy - 38, "#ff6fb3", true); tally.label = "MEGA POP"; }
+    else if (res.popped.length >= 6) { popText("SUPER!", cx, cy - 38, "#4cc94c", false); tally.label = "SUPER"; }
+    else if (res.popped.length >= 4) { popText("GREAT!", cx, cy - 38, "#4cc94c", false); tally.label = "GREAT"; }
+    else { tally.label = "POP"; }
+    if (res.dropped.length >= 3) { popText("LAWINA x" + res.dropped.length, cx, cy - 50, "#4da3ff", false); tally.label = "LAWINA"; }
+    if (combo >= 3) popText("SERIA " + combo, B.LW / 2, 46, "#ffd93d", false);
+    // Wizualna i dźwiękowa waga kasacji rośnie z jej rozmiarem.
+    const power = res.popped.length + res.dropped.length;
+    shake = Math.max(shake, Math.min(9, 1.5 + power * 0.5));
+    sfx.popFor(res.popped.length, combo);
+    if (res.dropped.length) sfx.drop();
+    // Slow-mo przy dużej kasacji — "chwila chwały" na lawinę.
+    if (power >= 7) slowmo = Math.max(slowmo, 0.28);
+    // Udany strzał = oddech: sufit się nie rusza, licznik się resetuje.
+    // UWAGA: NIE losujemy tu kolejki od nowa! Kolejka przesuwa się o jedną
+    // pozycję już w `fire()` (awans queue[1] -> queue[0]) i gracz WIDZI tę
+    // kulkę jako "NASTĘPNA". Przelosowanie całej kolejki po trafieniu
+    // podmieniało kulkę, którą gracz właśnie zobaczył (błąd zgłoszony przez
+    // użytkownika). Martwe kolory usuwa `purgeDeadColors()` niżej.
+    shotsLeft = shotsPerDrop;
+  } else {
+    // Pudło: combo przepada i sufit opada o rząd — presja czasu.
+    combo = 0;
+    music.tension = 0;
+    shotsLeft--;
+    if (shotsLeft <= 0 && state === "play") {
+      shotsLeft = shotsPerDrop;
+      dropCeiling();
+    }
+  }
+
+  // Strzał bez kasacji => przy miejscu strzału rodzi się organiczny klaster
+  // kulek (kulka po kulce, szybko); liczba zależy od poziomu trudności.
+  if (!hit && state === "play" && grid.size > 0) {
+    spawnCluster(cx, cy);
+  }
+  // Plansza się zmieniła — usuwamy z kolejki WYŁĄCZNIE kolory, których już
+  // nie ma na planszy (inaczej gracz dostałby kulkę, której nie da się użyć).
+  // Wszystko inne zostaje, więc kulka pokazana jako "NASTĘPNA" nie zmienia się
+  // graczowi pod ręką.
+  purgeDeadColors();
+  // balony dotarły do linii strzelca -> koniec gry
+  if (dangerOver()) { gameOver(); return; }
+  // wygrana poziomu
+  if (grid.size === 0 && state === "play") {
+    addScore(100 + level * 10, B.LW / 2, B.LH / 2);
+    levelComplete();
+  }
+}
+
+// Kolory nieobecne na planszy nie mogą zostać w kolejce ani w zaplanowanych
+// spawnach. Podmieniamy TYLKO takie wpisy — reszta kolejki jest nietykalna,
+// bo gracz już ją widzi i planuje pod nią strzały.
+function purgeDeadColors() {
+  if (grid.size === 0 || queue.length === 0) return;
+  const alive = new Set(B.colorPool(grid));
+  if (alive.size === 0) return;
+  for (let i = 0; i < queue.length; i++) {
+    if (!alive.has(queue[i])) queue[i] = B.pickColor(grid) || 1;
+  }
+  for (const sp of spawns) {
+    if (!alive.has(sp.color)) sp.color = B.pickColor(grid) || 1;
+  }
+}
+
+// Czy balon dotyka linii strzelca? Sprawdzane po każdej zmianie planszy
+// (pocisk, klaster, opad sufitu, rodzące się kulki).
+function dangerOver() {
+  return B.lowestRow(grid) >= B.MAXROW;
+}
+
+// ===== Opad sufitu =====
+// Wszystko zsuwa się o rząd w dół, a sufit przesuwa się RAZEM z balonami:
+// rząd 0 zostaje pusty, więc `ceilRow` rośnie i to on jest teraz kotwicą.
+// Bez tego kroku balony po opadzie wisiałyby "w powietrzu" i pierwszy
+// `settle` strąciłby całą planszę (bo topConnected nie miałby zaczepu).
+function dropCeiling() {
+  B.shiftDown(grid);
+  ceilRow = Math.min(B.MAXROW, ceilRow + 1);
+  ceilAnim = 0;                       // animacja zsunięcia
+  ceilingH = -B.PV;
+  soft.clear(); popIn.clear(); squash.clear();
+  shake = Math.max(shake, 4);
+  sfx.drop();
+  banner = { text: "SUFIT OPADA!", t: 0, dur: 0.9, sub: "Zbij kolory zanim dojdzie do linii" };
+}
+
+// ===== Koniec poziomu: ekran statystyk =====
+// Dodatkowo: bonus za NIEWYKORZYSTANE STRZAŁY (dokument 10.3). Liczymy, ile
+// strzałów zostało do następnego opadu sufitu — gracz, który czyści poziom
+// szybko i bez pudeł, dostaje za to nagrodę, ale małą, żeby nie opłacało się
+// grać zachowawczo zamiast widowiskowo.
+function levelComplete() {
+  state = "stats";
+  statsT = 0;
+  const secs = Math.max(0.1, (Date.now() - levelStart) / 1000);
+  const leftover = Math.max(0, shotsLeft - 1) * 5;
+  if (leftover > 0) { score += leftover; if (score > best) best = score; }
+  const popScore = runTally.popScore, dropScore = runTally.dropScore;
+  const bonusScore = runTally.bonusScore;
+  const base = 100 + level * 10;
+  lastStats = {
+    level: level, score: score, pops: pops, drops: drops,
+    combo: bestCombo, shots: levelShots,
+    acc: levelShots > 0 ? Math.round((pops / levelShots) * 10) / 10 : 0,
+    time: Math.round(secs * 10) / 10,
+    bonus: base,
+    // rozbicie wyniku (dokument 3.8/10.2)
+    breakdown: [
+      ["PĘKNIĘTE", popScore, "#ff9aa5"],
+      ["STRĄCONE", dropScore, "#4da3ff"],
+      ["BONUSY", bonusScore, "#ff6fb3"],
+      ["ZA POZIOM", base, "#4cc94c"],
+      ["ZA STRZAŁY", leftover, "#a8d8ff"],
+    ],
+    cascades: runTally.cascades,
+    bestLabel: runTally.bestLabel,
+  };
+  sfx.win();
+  queue = [];
+}
+function nextLevel() {
+  level++;
+  state = "play";
+  buildLevel();
+}
+
+function gameOver() {
+  if (state === "over") return;
+  state = "over";
+  statsT = 0;
+  sfx.over();
+  music.tension = 0;
+  try { localStorage.setItem("baloonBest", best); } catch (e) {}
+}
+
+// ===== Organiczne powstawanie kulek po nieudanym strzale =====
+// Rośnie zwarty klaster: ziarno = najbliższa wolna wsparta komórka, każda
+// kolejna kulka dobiera się do już wybranych (najbliżej punktu strzału).
+// Kolory tylko z puli obecnej na planszy — usunięte kolory nie wracają.
+//
+// WAŻNE (balans): klaster NIE może rosnąć w nieskończoność w dół — inaczej
+// kilka pudeł pod rząd zasypuje planszę do linii i poziom staje się
+// nie do wygrania. Presję czasu trzyma opadający sufit, więc klaster
+// ograniczamy do wolnych komórek POWYŻEJ dolnej krawędzi istniejącej
+// struktury (dokładamy "w górę i w bok", nie "coraz niżej").
+function spawnCluster(x, y) {
+  const count = Math.min(6, 2 + Math.floor(level / 3));
+  const taken = new Set();
+  // Nie pozwalamy nowym kulkom wylądować poniżej najniższego pustego rzędu
+  // struktury — klaster dokłada się do istniejącej bryły, nie schodzi w dół.
+  let baseRow = 0;
+  for (const k of grid.keys()) {
+    const r = B.split(k)[1];
+    if (r > baseRow) baseRow = r;
+  }
+  const maxRow = Math.min(B.MAXROW, baseRow);
+  const cellFree = (c, r) => !grid.has(B.key(c, r)) && !taken.has(B.key(c, r));
+  // dobra komórka: wsparta przez planszę lub przylegająca do wybranego klastra
+  const cellOk = (c, r) => {
+    if (r > maxRow) return false;
+    if (!cellFree(c, r)) return false;
+    if (B.supported(grid, c, r, ceilRow)) return true;
+    for (const [nc, nr] of B.neighbors(c, r)) {
+      if (taken.has(B.key(nc, nr))) return true;
+    }
+    return false;
+  };
+  const distCell = (c, r) => B.dist(x, y, B.colX(c, r), rowY(r));
+  // ziarno: najbliższa dobra komórka. Start od ceilRow — komórki nad
+  // sufitem są niedostępne (sufit mógł już opaść).
+  let seed = null, seedD = Infinity;
+  for (let r = ceilRow; r <= maxRow; r++) {
+    for (let c = 0; c < B.rowCols(r); c++) {
+      if (!cellOk(c, r)) continue;
+      const d = distCell(c, r);
+      if (d < seedD) { seedD = d; seed = { c, r }; }
+    }
+  }
+  if (!seed) { shake = Math.max(shake, 2); return; }   // brak miejsca: nic nie dokładamy
+  const picks = [seed];
+  taken.add(B.key(seed.c, seed.r));
+  // wzrost: każdy krok dobiera komórkę przylegającą do klastra
+  while (picks.length < count) {
+    let bestC = null, bestD = Infinity;
+    for (let r = ceilRow; r <= maxRow; r++) {
+      for (let c = 0; c < B.rowCols(r); c++) {
+        if (!cellOk(c, r)) continue;
+        let adj = false;
+        for (const [nc, nr] of B.neighbors(c, r)) {
+          if (taken.has(B.key(nc, nr))) { adj = true; break; }
+        }
+        if (!adj) continue;
+        const d = distCell(c, r);
+        if (d < bestD) { bestD = d; bestC = { c, r }; }
+      }
+    }
+    if (!bestC) break;
+    picks.push(bestC);
+    taken.add(B.key(bestC.c, bestC.r));
+  }
+  for (let i = 0; i < picks.length; i++) {
+    // Kolory wyłącznie z puli obecnej na planszy (bez martwych kolorów).
+    spawns.push({ c: picks[i].c, r: picks[i].r, color: B.pickColor(grid) || 1, delay: 0.04 + i * 0.05 });
+  }
+  shake = Math.max(shake, 2);
+}
+
+// ===== Wejście =====
+// Skala liczona z faktycznego rozmiaru na ekranie (CSS może zmniejszyć
+// canvas), dzięki czemu celowanie działa niezależnie od rozmiaru okna.
+function toGame(e) {
+  const r = cv.getBoundingClientRect();
+  const sx = r.width ? B.LW / r.width : 1 / SCALE;
+  const sy = r.height ? B.LH / r.height : 1 / SCALE;
+  return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy };
+}
+cv.addEventListener("mousemove", (e) => { mouse = toGame(e); });
+cv.addEventListener("touchmove", (e) => { e.preventDefault(); mouse = toGame(e.touches[0]); }, { passive: false });
+cv.addEventListener("pointerdown", (e) => {
+  const p = toGame(e);
+  mouse = p;
+  if (AC && AC.state === "suspended") AC.resume();
+  if (state === "menu") { startRun(); return; }
+  if (state === "over") { startRun(); return; }
+  if (state === "stats") {
+    // Ekran statystyk: kliknięcie po krótkiej chwili przechodzi dalej.
+    if (statsT > 0.6) nextLevel();
+    return;
+  }
+  fire();
+});
+window.addEventListener("keydown", (e) => {
+  if (e.code === "Space" || e.code === "Enter") {
+    e.preventDefault();
+    if (state === "menu" || state === "over") startRun();
+    else if (state === "stats") { if (statsT > 0.6) nextLevel(); }
+    else fire();
+  }
+  // R: szybki restart w trakcie gry (przydatne przy testach i nauce).
+  if (e.code === "KeyR" && (state === "play" || state === "stats")) startRun();
+});
+
+// ===== Rysowanie =====
+function px(x) { return Math.round(x); }
+
+// ===== Ostry tekst (bez antyaliasingu) =====
+// Zwykły fillText jest antyaliasowany, a cała gra to twardy pixel art — tekst
+// wyglądał więc "obco" (uwaga z recenzji obrazu). Rysujemy glif w rozdzielczości
+// logicznej, PROGUJEMY kanał alfa (piksel jest albo pełny, albo go nie ma)
+// i dopiero taki obrazek skalujemy razem z resztą. Zachowuje bieżący font,
+// kolor i wyrównanie, więc wystarczy podmienić wywołania.
+const pxTextCache = new Map();
+// Kolor CSS -> [r,g,b]; potrzebny, żeby wpisać DOKŁADNY kolor w piksele glifu.
+function cssRGB(s) {
+  if (typeof s !== "string") return null;
+  if (s[0] === "#") {
+    if (s.length === 7) return [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)];
+    if (s.length === 4) return [parseInt(s[1] + s[1], 16), parseInt(s[2] + s[2], 16), parseInt(s[3] + s[3], 16)];
+  }
+  const m = s.match(/rgba?\(([^)]+)\)/);
+  if (m) { const p = m[1].split(",").map(Number); return [p[0] | 0, p[1] | 0, p[2] | 0]; }
+  return null;
+}
+function pxText(txt, x, y) {
+  if (txt === undefined || txt === null) return;
+  txt = String(txt);
+  const s = SCALE;
+  const font = ctx.font, align = ctx.textAlign, color = ctx.fillStyle;
+  const key = txt + "\u0000" + color + "\u0000" + align + "\u0000" + font + "\u0000" + s;
+  let c = pxTextCache.get(key);
+  if (!c) {
+    // Glif rasteryzujemy w rozdzielczości DOCELOWEJ (rozmiar fontu * SCALE),
+    // a dopiero potem proguemy alfę. Progowanie glifu 8px (jak wcześniej)
+    // zostawiało cienkie, poszarpane resztki kresek — "WYNIK" czytało się
+    // jak "WYN IK", a "NASTĘPNA" jak "NASTEPA". Przy pełnej rozdzielczości
+    // kreski mają całe piksele, więc kształt jest czytelny, a krawędzie
+    // nadal twarde (żadnych półprzezroczystych pikseli).
+    const bigFont = font.replace(/(\d+(?:\.\d+)?)px/, (m, n) => (parseFloat(n) * s) + "px");
+    const mc = document.createElement("canvas").getContext("2d");
+    mc.font = bigFont;
+    const w = Math.max(1, Math.ceil(mc.measureText(txt).width) + 2);
+    const h = Math.ceil(8 * s * 1.45) + 2;
+    const base = h - Math.round(2 * s);
+    c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    const g = c.getContext("2d");
+    g.font = bigFont;
+    g.textAlign = "left";
+    g.textBaseline = "alphabetic";
+    g.fillStyle = color;
+    g.fillText(txt, 1, base);
+    try {
+      const d = g.getImageData(0, 0, w, h);
+      const p = d.data;
+      const rgb = cssRGB(color);
+      for (let i = 0; i < p.length; i += 4) {
+        if (p[i + 3] >= 128) {
+          // Dokładny kolor: canvas trzyma premnożoną alfę, więc piksele
+          // częściowo kryte mają po odczycie RGB przesunięte o ±1.
+          if (rgb) { p[i] = rgb[0]; p[i + 1] = rgb[1]; p[i + 2] = rgb[2]; }
+          p[i + 3] = 255;
+        } else {
+          p[i + 3] = 0;
+        }
+      }
+      g.putImageData(d, 0, 0);
+    } catch (e) { /* canvas "tainted" — zostaje wersja z antyaliasingiem */ }
+    c._base = base;
+    c._scale = s;
+    if (pxTextCache.size > 400) pxTextCache.clear();
+    pxTextCache.set(key, c);
+  }
+  // Rysujemy 1:1 w pikselach urządzenia (z zachowaniem wstrząsu ekranu),
+  // żeby nie było ponownego resamplowania i rozmycia.
+  const m = ctx.getTransform();
+  const k = m.a / c._scale;                      // dodatkowa skala (np. animacja bannera)
+  const wide = c.width / c._scale;
+  const lx = align === "center" ? x - wide / 2 : align === "right" ? x - wide : x;
+  const devX = Math.round(lx * m.a + m.e);
+  const devY = Math.round(y * m.d + m.f - c._base * k);
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(c, devX, devY, c.width * k, c.height * k);
+  ctx.restore();
+}
+
+// ===== Tło =====
+// Recenzja zrzutów (model widzący obrazy) wskazała trzy konkretne wady starego tła:
+//  (1) gradient nieba leciał przez CAŁĄ wysokość canvasu, więc w połowie ekranu
+//      powstawała "szara/morska zupa" (niebieski przechodził w morski, potem
+//      zielony) — wyglądało jak placeholder, nie jak niebo;
+//  (2) wzgórza były płaską jednokolorową plamą bez żadnego detalu ("wycinanka");
+//  (3) chmury miały za mały kontrast i czytały się jak rozmazane plamy.
+// Teraz: niebo ma TRZY dobrane kolory i kończy się na linii horyzontu
+// (żadnej zupy w środku), wzgórza mają rozświetloną grań, a chmury są jaśniejsze
+// i mają zacieniony spód, więc czytają się jako chmury.
+const SKY_END = 250;          // y, na którym niebo osiąga kolor horyzontu
+const HORIZON = 256;          // gdzie zaczyna się łąka (niebo musi dojść TUTAJ)
+
+function lerpHex(a, b, k) {
+  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+  const r = Math.round((pa >> 16) + ((pb >> 16) - (pa >> 16)) * k);
+  const g = Math.round(((pa >> 8) & 255) + (((pb >> 8) & 255) - ((pa >> 8) & 255)) * k);
+  const bl = Math.round((pa & 255) + ((pb & 255) - (pa & 255)) * k);
+  return "rgb(" + r + "," + g + "," + bl + ")";
+}
+
+// Wzgórza z rozświetloną granią — daje to wrażenie bryły zamiast płaskiej plamy.
+function drawHills(base, color, hi, amp, fn) {
+  for (let x = 0; x <= B.LW; x += 4) {
+    const top = px(base - fn(x) * amp);
+    ctx.fillStyle = color;
+    ctx.fillRect(x, top, 4, base - top + 2);
+    ctx.fillStyle = hi;
+    ctx.fillRect(x, top, 4, 2);
+  }
+}
+
+function drawCloud(x, y, s, col, shade, alpha) {
+  const w = Math.round(s), h = Math.max(3, Math.round(s * 0.42));
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = col;
+  ctx.fillRect(px(x), px(y), w, h);
+  ctx.fillRect(px(x + w * 0.14), px(y - h * 0.55), w * 0.44, h);
+  ctx.fillRect(px(x + w * 0.47), px(y - h * 0.78), w * 0.34, h);
+  ctx.fillRect(px(x + w * 0.38), px(y + h * 0.5), w * 0.5, h * 0.5);
+  ctx.fillStyle = shade;                        // zacieniony spód
+  ctx.fillRect(px(x), px(y + h - 2), w, 2);
+  ctx.fillRect(px(x + w * 0.38), px(y + h), w * 0.5, 2);
+  ctx.globalAlpha = 1;
+}
+
+// ===== Motywy tła (pory dnia), wybierane wg poziomu =====
+// Każde niebo to trzy DOBRANE kolory (góra / środek / horyzont) — dobrane tak,
+// żeby żadne przejście nie wpadało w mętny morski ani szary.
+const THEMES = [
+  { name: "PORANEK", sky: ["#6fb3e8", "#bcd9f2", "#ffd7ad"], sun: "#ffe27a", glow: "#fff3b0", sunHi: "#fff8cf",
+    hillFar: "#8fb8dc", hillFarHi: "#b6d6ef", hillNear: "#5aa864", hillNearHi: "#7fcd85",
+    meadow: "#3e8f47", meadowHi: "#5ab860", grass: "#2c6b33", tree: "#2f7a3e", treeHi: "#46a052",
+    cloud: "#ffffff", cloudShade: "#cfe4f5", cloudA: 0.92 },
+  { name: "POŁUDNIE", sky: ["#4d9fe0", "#8ecbf0", "#d6eefc"], sun: "#ffd23f", glow: "#fff6c0", sunHi: "#fffbe0",
+    hillFar: "#7fb2d8", hillFarHi: "#a8cfeb", hillNear: "#4f9a58", hillNearHi: "#72c079",
+    meadow: "#3f9449", meadowHi: "#5ab860", grass: "#2c6b33", tree: "#2f7a3e", treeHi: "#46a052",
+    cloud: "#ffffff", cloudShade: "#c8e0f2", cloudA: 0.95 },
+  { name: "ZMIERZCH", sky: ["#40356e", "#a05a8c", "#ff9d5c"], sun: "#ffb066", glow: "#ffd9b0", sunHi: "#ffe8cf",
+    hillFar: "#6d5f9e", hillFarHi: "#9184c4", hillNear: "#3f6f52", hillNearHi: "#5d936d",
+    meadow: "#35663a", meadowHi: "#4a8a4f", grass: "#274a2b", tree: "#28583a", treeHi: "#3a7048",
+    cloud: "#f0d8e8", cloudShade: "#a87fa4", cloudA: 0.7 },
+  { name: "NOC", sky: ["#0e1730", "#1b2a52", "#31456f"], sun: "#e8f0ff", glow: "#cfd9ff", sunHi: "#ffffff",
+    hillFar: "#2b3a63", hillFarHi: "#43578c", hillNear: "#1f4a34", hillNearHi: "#2f6a48",
+    meadow: "#1b3320", meadowHi: "#2a4a30", grass: "#12241a", tree: "#1a3a26", treeHi: "#275431",
+    cloud: "#8fa4c8", cloudShade: "#5f7398", cloudA: 0.5, stars: true },
+];
+function theme() { return THEMES[(level - 1) % THEMES.length]; }
+
+function bg() {
+  const t = Date.now();
+  const th = theme();
+
+  // --- niebo: trzy kolory, wypełnione aż do linii łąki ---
+  // UWAGA: pętla musi dojść do HORIZON, nie do SKY_END. Wcześniej kończyła się
+  // na SKY_END, a wzgórza wypełniają tylko od swojej grani w dół — w miejscach,
+  // gdzie grań bliskiego wzgórza wypada nisko, zostawał NIEZAKRYTY pas i przez
+  // niego przeświecało tło strony (czarne prostokąty na trawie — błąd
+  // znaleziony przez model widzący obrazy).
+  const kEnd = Math.max(1, SKY_END);
+  for (let y = 0; y < HORIZON; y += 4) {
+    const k = Math.min(1, y / kEnd);
+    ctx.fillStyle = k < 0.5
+      ? lerpHex(th.sky[0], th.sky[1], k * 2)
+      : lerpHex(th.sky[1], th.sky[2], (k - 0.5) * 2);
+    ctx.fillRect(0, y, B.LW, 4);
+  }
+
+  // --- gwiazdy (tylko noc), migoczące ---
+  if (th.stars) {
+    for (let i = 0; i < 26; i++) {
+      const gx = (i * 47 + 13) % B.LW, gy = 6 + ((i * 71 + 29) % 150);
+      const tw = 0.35 + 0.65 * Math.abs(Math.sin(t * 0.001 + i));
+      ctx.fillStyle = "rgba(255,255,255," + (0.7 * tw).toFixed(2) + ")";
+      ctx.fillRect(gx, gy, 1, 1);
+    }
+  }
+
+  // --- słońce / księżyc z miękką poświatą ---
+  const sx = 198, sy = 54, sr = 9;
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = th.glow;
+  ctx.fillRect(sx - sr * 2, sy - sr * 2, sr * 4, sr * 4);
+  ctx.globalAlpha = 0.3;
+  ctx.fillRect(sx - Math.round(sr * 1.5), sy - Math.round(sr * 1.5), sr * 3, sr * 3);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = th.sun;
+  ctx.fillRect(sx - sr, sy - sr, sr * 2, sr * 2);
+  ctx.fillStyle = th.sunHi;
+  ctx.fillRect(sx - sr + 2, sy - sr + 2, sr * 2 - 4, sr * 2 - 4);
+  if (th.stars) {   // sierp: zasłaniamy część tarczy kolorem nieba
+    ctx.fillStyle = th.sky[0];
+    ctx.fillRect(sx + 1, sy - sr, sr + 1, sr * 2);
+    ctx.fillRect(sx - sr, sy - sr, sr * 2, 3);
+  }
+
+  // --- chmury (trzy warstwy paralaksy) ---
+  drawCloud((t * 0.012) % (B.LW + 70) - 35, 68, 30, th.cloud, th.cloudShade, th.cloudA);
+  drawCloud(210 - (t * 0.008) % (B.LW + 70) + 35, 98, 22, th.cloud, th.cloudShade, th.cloudA * 0.85);
+  drawCloud((t * 0.016) % (B.LW + 70) - 35, 130, 17, th.cloud, th.cloudShade, th.cloudA * 0.9);
+
+  // --- wzgórza: dalekie (jaśniejsze) i bliskie (ciemniejsze) ---
+  drawHills(244, th.hillFar, th.hillFarHi, 22, (x) => Math.max(0.3, Math.abs(Math.sin(x * 0.017)) + 0.2 * Math.sin(x * 0.053 + 1)));
+  drawHills(262, th.hillNear, th.hillNearHi, 13, (x) => Math.max(0.4, Math.abs(Math.sin(x * 0.031 + 2)) + 0.15 * Math.sin(x * 0.09)));
+
+  // --- łąka ---
+  ctx.fillStyle = th.meadow;
+  ctx.fillRect(0, HORIZON, B.LW, B.LH - HORIZON);
+  ctx.fillStyle = th.meadowHi;
+  ctx.fillRect(0, HORIZON, B.LW, 2);
+
+  // trawa: spokojna (wcześniej drobne kolorowe "confetti" konkurowało
+  // o uwagę z etykietą NASTĘPNA i wyglądało jak martwe piksele)
+  ctx.fillStyle = th.grass;
+  for (let x = 0; x < B.LW; x += 8) {
+    ctx.fillRect(x, 268 + ((x * 7) % 4), 2, 3);
+  }
+
+  // --- drzewka na horyzoncie (dwuodcieniowe korony) ---
+  for (let i = 0; i < 6; i++) {
+    const dx = 8 + ((i * 43 + 5) % (B.LW - 30));
+    const dh = 10 + ((i * 17) % 7);
+    ctx.fillStyle = "#6b3f1f";
+    ctx.fillRect(dx, 262, 3, 7);
+    ctx.fillStyle = th.tree;
+    ctx.fillRect(dx - 5, 258 - dh * 0.35, 13, dh * 0.7);
+    ctx.fillStyle = th.treeHi;
+    ctx.fillRect(dx - 3, 252 - dh * 0.6, 9, dh * 0.5);
+    ctx.fillStyle = th.tree;
+    ctx.fillRect(dx - 1, 246 - dh * 0.85, 5, dh * 0.5);
+  }
+}
+function drawGrid() {
+  for (const k of grid.keys()) {
+    const [c, r] = B.split(k);
+    const s = soft.get(k);
+    const x = B.colX(c, r) + (s ? s.ox : 0);
+    const y = rowY(r) + (s ? s.oy : 0);
+    const pi = popIn.get(k);
+    const sq = squash.get(k);
+    if (pi !== undefined) {
+      // powstawanie: wyrasta z "niczego" z lekkim przepchnięciem
+      const e = 1 - Math.pow(1 - pi, 3);        // ease-out
+      drawBall(grid.get(k), x, y, e);
+    } else if (sq !== undefined) {
+      // squash & stretch: balon przed pęknięciem pęcznieje i rozjeżdża się
+      // w szerz — czytelny "oddech" tuż przed wybuchem.
+      const p = sq;                              // 0..1
+      const puff = 1 + Math.sin(p * Math.PI) * 0.55;
+      const flat = 1 - Math.sin(p * Math.PI) * 0.30;
+      const s2 = SPR_SIZE * puff;
+      ctx.globalAlpha = 1 - p * 0.5;
+      ctx.drawImage(spriteCache[grid.get(k)], x - s2 / 2, y - (SPR_SIZE * flat) / 2, s2, SPR_SIZE * flat);
+      ctx.globalAlpha = 1;
+    } else {
+      drawBall(grid.get(k), x, y);
+    }
+  }
+}
+
+// Sufit: bryła z klocków, której DOLNA krawędź to powierzchnia sufitu —
+// czyli dokładnie górna krawędź rzędu `ceilRow`. Sufit jest więc ZAWSZE nad
+// balonami i nie przykrywa ich (wcześniej wzór dawał środek rzędu 1, czyli
+// pasek zasłaniał cały rząd 0 i wyglądał na "niżej niż kulki").
+// Wraz z kolejnymi opadami (ceilRow rośnie) bryła wjeżdża w pole gry.
+function drawCeiling() {
+  const y = rowY(ceilRow) - B.RAD;    // powierzchnia sufitu
+  if (y <= 0) return;
+  // pełna bryła nad powierzchnią sufitu
+  ctx.fillStyle = "#1a1208";
+  ctx.fillRect(0, 0, B.LW, Math.max(0, y));
+  // klocki przy samej powierzchni
+  for (let x = 0; x < B.LW; x += 12) {
+    ctx.fillStyle = "#4a3a22";
+    ctx.fillRect(x, y - 6, 10, 6);
+    ctx.fillStyle = "#6d5730";
+    ctx.fillRect(x, y - 6, 10, 2);
+  }
+  // wyraźna krawędź nośna — to widać jako "sufit", nawet gdy jest cienki
+  ctx.fillStyle = "#8a6d3c";
+  ctx.fillRect(0, y - 2, B.LW, 2);
+  ctx.fillStyle = "#2a2014";
+  ctx.fillRect(0, y, B.LW, 1);
+  // ostrzeżenie: im mniej strzałów do opadu, tym bardziej sufit "gorący"
+  const k = shotsLeft / shotsPerDrop;
+  if (k < 0.4) {
+    const pulse = 0.4 + 0.6 * Math.sin(Date.now() * 0.01);
+    ctx.globalAlpha = (1 - k / 0.4) * pulse * 0.5;
+    ctx.fillStyle = "#ff4444";
+    ctx.fillRect(0, y - 4, B.LW, 4);
+    ctx.globalAlpha = 1;
+  }
+}
+// ===== Celowanie =====
+// DWA celowniki to był błąd: kursor systemowy (CSS `cursor: crosshair`) rysował
+// własny krzyżyk W MIEJSCU MYSZKI, a my rysowaliśmy drugi na końcu toru. Efekt:
+// dwa krzyżyki, które się rozjeżdżają, gdy kursor jest daleko od toru.
+// Rozwiązanie:
+//   - kursor systemowy jest UKRYTY (`cursor: none`),
+//   - rysujemy DOKŁADNIE JEDEN celownik: na końcu toru lotu (tam, gdzie kulka
+//     faktycznie doleci), z małym znacznikiem tuż przy kursorze pokazującym,
+//     gdzie gracz wskazuje.
+//
+// DŁUGOŚĆ TORU: na start jest KRÓTKA (AIM_BASE). To decyzja projektowa, nie
+// oszczędność: skoro mechaniki będą się rozbudowywać (boostery, dłuższy
+// podgląd toru, odbicia), pełny podgląd od początku odbierałby im sens
+// i spłaszczał decyzję "czy zaryzykować odbicie". Tor wydłużają później
+// przedmioty/boostery — patrz `aimBonus`.
+const AIM_BASE = 58;          // bazowy zasięg podglądu toru (px logicznych)
+let aimBonus = 0;             // dodatkowy zasięg z boosterów (na przyszłość)
+
+// Pełny zasięg lotu: do pierwszego balonu, sufitu albo ściany.
+function aimReach(x, y, ang) {
+  const dx = Math.cos(ang), dy = Math.sin(ang);
+  const step = 4, limit = 250;
+  const ceilTop = rowY(ceilRow) - B.RAD;
+  for (let d = step; d <= limit; d += step) {
+    const gx = x + dx * d, gy = y + dy * d;
+    if (gy <= ceilTop || gx < 10 || gx > B.LW - 10) return d;
+    for (const k of grid.keys()) {
+      const [c, r] = B.split(k);
+      const bx = B.colX(c, r) - gx, by = rowY(r) - gy;
+      if (bx * bx + by * by < HIT_D2) return d;
+    }
+  }
+  return limit;
+}
+
+// Rysuje pojedynczy znacznik w punkcie (cx,cy).
+//
+// WAŻNE (recenzja obrazu): znacznik kursora NIE MOŻE wyglądać jak celownik.
+// Wcześniej był to mały krzyżyk 5x5 — a ponieważ kursor bywa daleko od końca
+// krótkiego toru, gracz widział "krzyżyk przy balonach" i czytał go jako
+// "tu wpadnie kulka", w sprzeczności z uciętym torem. Dlatego kursor rysujemy
+// jako OKRĄGŁY pierścień (nie krzyż), czyli jednoznacznie wskaźnik myszy,
+// a krzyż zarezerwowany jest wyłącznie dla miejsca trafienia.
+function drawReticle(cx, cy, full) {
+  const rx = px(cx), ry = px(cy);
+  if (!full) {
+    // pierścień (8 pikseli w okręgu) + jasny środek — czytelnie "kursor"
+    const ring = [[0, -2], [1, -1], [2, 0], [1, 1], [0, 2], [-1, 1], [-2, 0], [-1, -1]];
+    for (const [ox, oy] of ring) {
+      ctx.fillStyle = "rgba(8,12,22,0.75)";
+      ctx.fillRect(rx + ox - 1, ry + oy - 1, 3, 3);
+    }
+    for (const [ox, oy] of ring) {
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.fillRect(rx + ox, ry + oy, 1, 1);
+    }
+    ctx.fillStyle = "#ffd93d";
+    ctx.fillRect(rx, ry, 1, 1);
+    return;
+  }
+  // celownik TRAFIENIA: krzyż z ciemną obwódką (żeby nie ginął na chmurach)
+  ctx.fillStyle = "rgba(8,12,22,0.62)";
+  ctx.fillRect(rx - 7, ry - 1, 6, 3); ctx.fillRect(rx + 2, ry - 1, 6, 3);
+  ctx.fillRect(rx - 1, ry - 7, 3, 6); ctx.fillRect(rx - 1, ry + 2, 3, 6);
+  ctx.fillRect(rx - 3, ry - 3, 7, 7);
+  ctx.fillStyle = "rgba(255,255,255,0.95)";
+  ctx.fillRect(rx - 6, ry, 4, 1); ctx.fillRect(rx + 3, ry, 4, 1);
+  ctx.fillRect(rx, ry - 6, 1, 4); ctx.fillRect(rx, ry + 3, 1, 4);
+  ctx.fillStyle = "#ff5a5a";
+  ctx.fillRect(rx, ry, 1, 1);
+}
+
+// ===== Wyrzutnia: sama kulka + celownik (bez armaty) =====
+// Ten gatunek nie potrzebuje armaty — liczy się KULKA, KTÓRA POLECI, oraz
+// CELOWNIK, a armata tylko zajmowała miejsce i myliła (recenzja obrazu oceniła
+// czytelność sekcji amunicji na 3/5 i wskazała, że nie wiadomo, co poleci).
+// Dlatego rysujemy tylko:
+//   - krótki kropkowany tor lotu,
+//   - JEDEN celownik na końcu toru,
+//   - kulkę queue[0] dokładnie w punkcie startu pocisku,
+//   - ramkę z kulką "NASTĘPNA" (queue[1]) na własnej plakietce z etykietą.
+function drawLauncher() {
+  const x = launcher.x, y = launcher.y;
+  const ang = aimAngle();
+  const t = Math.min(1, Math.max(0, ammoT));
+  const ease = 1 - Math.pow(1 - t, 3);              // ease-out
+  const dx = Math.cos(ang), dy = Math.sin(ang);
+
+  // --- tor lotu (tylko w trakcie gry: na ekranach menu/statystyk i tak się
+  //     nie strzela, a linia przeświecała przez półprzezroczysty panel) ---
+  if (state === "play") {
+  const full = aimReach(x, y, ang);
+  const preview = AIM_BASE + aimBonus;
+  const len = Math.max(18, Math.min(full, preview));
+  // `truncated` = podgląd został OBCIĘTY, więc nie wiemy, gdzie kulka wpadnie.
+  // Liczone wprost z porównania z limitem podglądu, a nie z `len < full - 1`:
+  // przy `full` równym limitowi raycastu (250) oba warunki się spotykały
+  // i rysował się celownik trafienia w środku pola, mimo że tor był ucięty
+  // (błąd znaleziony przez recenzję obrazu: "crosshair at y≈144 makes no
+  // geometric sense with a clipped preview").
+  const truncated = full > preview;
+  for (let d = 18; d < len - 6; d += 7) {
+    const a = 0.20 + 0.34 * (1 - d / len);
+    const gx = px(x + dx * d), gy = px(y + dy * d);
+    ctx.fillStyle = "rgba(8,12,22,0.5)";
+    ctx.fillRect(gx - 2, gy - 2, 4, 4);
+    ctx.fillStyle = "rgba(255,255,255," + a.toFixed(2) + ")";
+    ctx.fillRect(gx - 1, gy - 1, 2, 2);
+  }
+  // Grot toru: gdy podgląd jest skrócony, kończymy STRZAŁKĄ (kierunek dalszego
+  // lotu), a nie krzyżykiem — krzyżyk sugerowałby "tu wpadnie", co byłoby
+  // nieprawdą, dopóki zasięg jest krótki.
+  const ex = px(x + dx * len), ey = px(y + dy * len);
+  if (truncated) {
+    // Strzałka. Recenzja obrazu zmierzyła przesunięcie grota w prawo o 1 px.
+    // Powód: `Math.round(cx - 0.5)` NIE centruje prostokąta — dla kropki 2x2
+    // wypełnianej od (fx,fy) środek wypada w fx+1. Poprawnie centruje
+    // `Math.round(cx) - 1`, co daje środek dokładnie w Math.round(cx).
+    // Rysujemy więc parzyste kropki (2x2 / 4x4) z tej właśnie pozycji.
+    const px0 = (v) => Math.round(v) - 1;
+    for (let i = -2; i <= 2; i++) {
+      const back = len - Math.abs(i) * 3;
+      const fx = px0(x + dx * back - dy * i), fy = px0(y + dy * back + dx * i);
+      ctx.fillStyle = "rgba(8,12,22,0.6)";
+      ctx.fillRect(fx - 1, fy - 1, 4, 4);
+    }
+    for (let i = -2; i <= 2; i++) {
+      const back = len - Math.abs(i) * 3;
+      const fx = px0(x + dx * back - dy * i), fy = px0(y + dy * back + dx * i);
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.fillRect(fx, fy, 2, 2);
+    }
+  } else {
+    // tor dobiegł do przeszkody => celownik pokazuje miejsce trafienia
+    drawReticle(ex, ey, true);
+  }
+  // Znacznik kursora: pokazuje, GDZIE gracz wskazuje (kursor systemowy jest
+  // ukryty). Rysowany tylko wtedy, gdy jest sens — czyli w trakcie gry.
+  drawReticle(mouse.x, mouse.y, false);
+  }
+
+  // --- podstawa pod kulką ---
+  // Bez niej kulka czytała się jak zabłąkany balon leżący na trawie
+  // (uwaga z recenzji obrazu).
+  ctx.fillStyle = "#182a1b";
+  ctx.beginPath(); ctx.ellipse(x, y + 13, 17, 5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#2f4f37";
+  ctx.beginPath(); ctx.ellipse(x, y + 12, 14, 4, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#1b3220";
+  ctx.beginPath(); ctx.ellipse(x, y + 11, 10, 3, 0, 0, Math.PI * 2); ctx.fill();
+
+  // --- podajnik "NASTĘPNA" ---
+  const fx = x + 52, fy = y - 3;
+  ctx.fillStyle = "#101826";
+  ctx.fillRect(fx - 15, fy - 14, 30, 28);
+  ctx.fillStyle = "#22314c";
+  ctx.fillRect(fx - 13, fy - 12, 26, 24);
+  ctx.fillStyle = "#0a0f18";
+  ctx.fillRect(fx - 11, fy - 10, 22, 20);
+  // etykieta na własnej plakietce — wcześniej wisiała w powietrzu bez tła
+  // i nie było jasne, do czego należy
+  ctx.fillStyle = "#101826";
+  ctx.fillRect(fx - 25, fy + 16, 50, 11);
+  ctx.fillStyle = "#3a5480";
+  ctx.fillRect(fx - 25, fy + 16, 50, 1);
+  ctx.font = "bold 8px monospace";
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#a8c8f0";
+  pxText("NASTĘPNA", fx, fy + 24);
+
+  // kula następna (queue[1]): lekko się unosi, a przy przeładowaniu pojawia się płynnie
+  if (queue[1] !== undefined) {
+    const bob = Math.sin(Date.now() * 0.005) * 1.1;
+    ctx.globalAlpha = 0.35 + 0.65 * ease;
+    drawBall(queue[1], fx, fy + bob, 0.78);
+    ctx.globalAlpha = 1;
+  }
+
+  // kula, która poleci (queue[0]): przy przeładowaniu przejeżdża z podajnika
+  // na pozycję startową — widać związek "wystrzeliłem -> ładuje się następna"
+  if (queue[0] !== undefined) {
+    const bx = fx + (x - fx) * ease;
+    const by = fy + (y - fy) * ease;
+    drawBall(queue[0], bx, by, 0.85 + 0.15 * ease);
+  }
+
+  // błysk wystrzału (zamiast błysku lufy armaty)
+  if (muzzle > 0.05) {
+    const g = 6 + muzzle * 14;
+    ctx.globalAlpha = muzzle * 0.5;
+    ctx.fillStyle = "#fff0aa";
+    ctx.beginPath(); ctx.arc(x + dx * 10, y + dy * 10, g, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawProjectile() {
+  if (proj) drawBall(proj.color, proj.x, proj.y);
+}
+function drawEffects() {
+  // flesze pęknięć (rozszerzający się pierścień)
+  for (const f of flash) {
+    const p = f.t / f.dur;
+    const rad = 4 + p * 16;
+    ctx.globalAlpha = (1 - p) * 0.8;
+    ctx.fillStyle = PAL[f.color].base;
+    ctx.fillRect(f.x - rad, f.y - rad, rad * 2, rad * 2);
+    ctx.globalAlpha = 1;
+  }
+  for (const p of particles) {
+    if (p.kind === "text") {
+      const a = Math.max(0, Math.min(1, p.life * 1.6));
+      ctx.globalAlpha = a;
+      if (p.big) {
+        const sc = 1 + (1 - Math.min(1, p.life * 1.6)) * 0.3;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.scale(sc, sc);
+        ctx.fillStyle = p.col || "#ffffff";
+        ctx.font = "bold 12px monospace";
+        ctx.textAlign = "center";
+        pxText(p.txt, 0, 0);
+        ctx.restore();
+      } else {
+        ctx.fillStyle = p.col || "rgba(255,255,255,0.9)";
+        ctx.font = "bold 9px monospace";
+        ctx.textAlign = "center";
+        pxText(p.txt, p.x, p.y);
+      }
+      ctx.globalAlpha = 1;
+      continue;
+    }
+    const a = Math.max(0, Math.min(1, p.life * 2.2));
+    if (p.trail) {
+      ctx.globalAlpha = a * 0.5;
+      ctx.fillStyle = "#ffffff";
+    } else {
+      ctx.globalAlpha = a;
+      ctx.fillStyle = PAL[p.color].base;
+    }
+    ctx.fillRect(p.x - 1, p.y - 1, p.trail ? 2 : 3, p.trail ? 2 : 3);
+    ctx.globalAlpha = 1;
+  }
+  for (const f of floaters) {
+    ctx.globalAlpha = Math.max(0, Math.min(1, (B.LH + 40 - f.y) / 60));
+    drawBall(f.color, f.x, f.y);
+    ctx.globalAlpha = 1;
+  }
+}
+function drawHUD() {
+  ctx.fillStyle = "#0b0e1a";
+  ctx.fillRect(0, 0, B.LW, HUD_H);
+  ctx.font = "bold 8px monospace";
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#9fb4d8";
+  pxText("WYNIK " + score, 4, 11);
+  // Druga linia: POZIOM i SUFIT obok siebie (mierzymy tekst, żeby się nie nachodziły)
+  ctx.fillStyle = "#d8e6ff";
+  const lvlTxt = "POZIOM " + level;
+  pxText(lvlTxt, 4, 21);
+  const lw = ctx.measureText(lvlTxt).width;
+  ctx.fillStyle = shotsLeft <= 2 ? "#ff4455" : "#9fb4d8";
+  pxText("SUFIT " + shotsLeft, 4 + lw + 7, 21);
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#ffd93d";
+  pxText("REKORD " + best, B.LW - 4, 11);
+  // Combo — pulsuje i zmienia kolor, gdy seria rośnie.
+  if (combo > 1) {
+    const bounce = combo >= 3 ? 1 + 0.12 * Math.sin(Date.now() * 0.02) : 1;
+    ctx.save();
+    ctx.translate(B.LW - 4, 21);
+    ctx.scale(bounce, bounce);
+    ctx.fillStyle = combo >= 5 ? "#ff6fb3" : combo >= 3 ? "#ffd93d" : "#4cc94c";
+    pxText("SERIA x" + (Math.round(Math.min(8, 1 + (combo - 1) * 0.5) * 10) / 10), 0, 0);
+    ctx.restore();
+  }
+  ctx.textAlign = "left";
+  // Pasek presji: jak blisko dolnej linii jest najniższy balon.
+  const lo = B.lowestRow(grid);
+  const frac = lo < 0 ? 0 : Math.min(1, (lo + 1) / (B.MAXROW + 1));
+  ctx.fillStyle = "#1a2030";
+  ctx.fillRect(0, HUD_H - 3, B.LW, 3);
+  ctx.fillStyle = frac > 0.8 ? "#ff4455" : frac > 0.55 ? "#ffd93d" : "#4cc94c";
+  ctx.fillRect(0, HUD_H - 3, B.LW * frac, 3);
+  // linia zagrożenia — górna krawędź pasa = dokładnie dolna krawędź balona
+  // w rzędzie MAXROW; gra kończy się w momencie dotknięcia linii
+  const dy = rowY(B.MAXROW) + B.RAD;
+  const pulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.006);
+  ctx.fillStyle = "#1a1a1a";
+  ctx.fillRect(0, dy, B.LW, 3);
+  for (let x = 0; x < B.LW; x += 8) {
+    ctx.fillStyle = pulse > 0.5 ? "#ff4444" : "#c22";
+    ctx.fillRect(x, dy, 4, 3);
+    ctx.fillStyle = "#1a1a1a";
+    ctx.fillRect(x + 4, dy, 4, 3);
+  }
+  ctx.fillStyle = "rgba(255,60,60," + (0.15 + 0.12 * pulse) + ")";
+  ctx.fillRect(0, dy - 5, B.LW, 5);
+  // Winieta "niebezpieczeństwa" gdy najniższy balon jest blisko linii.
+  if (frac > 0.75) {
+    const a = (frac - 0.75) * 1.6 * (0.4 + 0.4 * pulse);
+    ctx.fillStyle = "rgba(255,40,40," + a.toFixed(3) + ")";
+    ctx.fillRect(0, 0, B.LW, 6);
+    ctx.fillRect(0, B.LH - 6, B.LW, 6);
+    ctx.fillRect(0, 0, 5, B.LH);
+    ctx.fillRect(B.LW - 5, 0, 5, B.LH);
+  }
+}
+function drawBanner() {
+  if (banner.t < banner.dur && banner.t > 0.2) {
+    const pop = Math.min(1, (banner.t - 0.2) * 6);
+    const sc = 0.6 + 0.4 * (1 - Math.pow(1 - pop, 3));
+    ctx.fillStyle = "rgba(11,14,26,0.55)";
+    ctx.fillRect(0, B.LH / 2 - 24, B.LW, 48);
+    ctx.save();
+    ctx.translate(B.LW / 2, B.LH / 2 - 2);
+    ctx.scale(sc, sc);
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 14px monospace";
+    ctx.textAlign = "center";
+    pxText(banner.text, 0, 0);
+    ctx.restore();
+    ctx.fillStyle = "#ffd93d";
+    ctx.font = "bold 8px monospace";
+    ctx.textAlign = "center";
+    pxText(banner.sub || theme().name, B.LW / 2, B.LH / 2 + 16);
+  }
+}
+function drawMenu() {
+  ctx.fillStyle = "rgba(11,14,26,0.82)";
+  ctx.fillRect(0, 0, B.LW, B.LH);
+  ctx.fillStyle = "#ff9aa5";
+  ctx.font = "bold 14px monospace";
+  ctx.textAlign = "center";
+  pxText("BALONOWY", B.LW / 2, 66);
+  ctx.fillStyle = "#a8d8ff";
+  pxText("STRZELEC", B.LW / 2, 82);
+  ctx.fillStyle = "#9fb4d8";
+  ctx.font = "bold 8px monospace";
+  ctx.textAlign = "left";
+  const tips = [
+    ["Zbij 3+ balony tego samego koloru.", "#d8e6ff"],
+    ["Odcięte od sufitu spadną — za więcej.", "#d8e6ff"],
+    ["SERIA za każdy udany strzał = x8 punktów.", "#ffd93d"],
+    ["Pudło zeruje serię i OPUSZCZA sufit.", "#ff8f6b"],
+    ["Nie pozwól balonom dotknąć linii!", "#ff4455"],
+  ];
+  for (let i = 0; i < tips.length; i++) {
+    ctx.fillStyle = tips[i][1];
+    pxText("· " + tips[i][0], 18, 128 + i * 13);
+  }
+  ctx.textAlign = "center";
+  if (best > 0) { ctx.fillStyle = "#ffd93d"; pxText("REKORD: " + best, B.LW / 2, 202); }
+  const b = 0.6 + 0.4 * Math.abs(Math.sin(Date.now() * 0.003));
+  ctx.globalAlpha = b;
+  ctx.fillStyle = "#4cc94c";
+  ctx.font = "bold 10px monospace";
+  pxText("[ KLIKNIJ ABY GRAĆ ]", B.LW / 2, B.LH - 60);
+  ctx.globalAlpha = 1;
+}
+
+// Ekran statystyk między poziomami — podsumowanie i chwila oddechu.
+function drawStats() {
+  const s = lastStats;
+  // Panel NIEPRZEZROCZYSTY (delikatny gradient dla głębi). Przy półprzezroczystym
+  // przeświecał HUD i wyrzutnia, co rozpraszało (uwaga z recenzji obrazu:
+  // "HUD ghosting around NAJDŁUŻSZA SERIA").
+  for (let y = 0; y < B.LH; y += 4) {
+    ctx.fillStyle = lerpHex("#141d33", "#0a0d18", Math.min(1, y / B.LH));
+    ctx.fillRect(0, y, B.LW, 4);
+  }
+  const rise = Math.min(1, statsT * 4);
+  ctx.globalAlpha = rise;
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#4cc94c";
+  ctx.font = "bold 14px monospace";
+  pxText("POZIOM " + (s ? s.level : level) + " CZYSTY!", B.LW / 2, 74);
+  if (s) {
+    const rows = [
+      ["PUNKTY", "" + s.score, "#d8e6ff"],
+      ["PĘKNIĘTE BALONY", "" + s.pops, "#ff9aa5"],
+      ["STRĄCONE", "" + s.drops, "#4da3ff"],
+      ["NAJDŁUŻSZA SERIA", "x" + (Math.round(Math.min(8, 1 + (s.combo - 1) * 0.5) * 10) / 10), "#ffd93d"],
+      ["STRZAŁY", "" + s.shots, "#9fb4d8"],
+      ["SKUTECZNOŚĆ", s.acc + " / strzał", "#9fb4d8"],
+      ["CZAS", s.time + " s", "#9fb4d8"],
+    ];
+    ctx.font = "bold 8px monospace";
+    for (let i = 0; i < rows.length; i++) {
+      const y = 100 + i * 13;
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#7d8aa8";
+      pxText(rows[i][0], 26, y);
+      ctx.textAlign = "right";
+      ctx.fillStyle = rows[i][2];
+      pxText(rows[i][1], B.LW - 26, y);
+    }
+    // ===== Rozbicie wyniku (dokument 3.8/10.2) =====
+    // Gracz ma widzieć, ZA CO dostał punkty — bez tego wynik jest jedną
+    // nieprzejrzystą liczbą i nie da się wyciągnąć wniosków na następny raz.
+    let y = 100 + rows.length * 13 + 10;
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#4cc94c";
+    pxText("— SKĄD PUNKTY —", B.LW / 2, y);
+    y += 12;
+    if (s.breakdown) {
+      for (const [label, val, col] of s.breakdown) {
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#7d8aa8";
+        pxText(label, 26, y);
+        ctx.textAlign = "right";
+        ctx.fillStyle = val > 0 ? col : "#4a5568";
+        pxText((val > 0 ? "+" : "") + val, B.LW - 26, y);
+        y += 11;
+      }
+    }
+    if (s.bestLabel) {
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#ffd93d";
+      pxText("NAJLEPSZY STRZAŁ: " + s.bestLabel, B.LW / 2, y + 2);
+    }
+  }
+  if (statsT > 0.6) {
+    const b = 0.6 + 0.4 * Math.abs(Math.sin(Date.now() * 0.005));
+    ctx.globalAlpha = rise * b;
+    ctx.fillStyle = "#4cc94c";
+    ctx.font = "bold 10px monospace";
+    pxText("[ KLIKNIJ: NASTĘPNY POZIOM ]", B.LW / 2, B.LH - 60);
+  }
+  ctx.globalAlpha = 1;
+}
+function drawOver() {
+  ctx.fillStyle = "rgba(11,14,26,0.85)";
+  ctx.fillRect(0, 0, B.LW, B.LH);
+  const rise = Math.min(1, statsT * 3);
+  ctx.globalAlpha = rise;
+  ctx.fillStyle = "#ff4455";
+  ctx.font = "bold 14px monospace";
+  ctx.textAlign = "center";
+  pxText("KONIEC GRY", B.LW / 2, 84);
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 10px monospace";
+  pxText("WYNIK: " + score, B.LW / 2, 116);
+  ctx.fillStyle = "#ffd93d";
+  pxText("REKORD: " + best, B.LW / 2, 134);
+  // Podsumowanie biegu — gracz widzi, jak daleko zaszedł i co poprawić.
+  ctx.font = "bold 8px monospace";
+  ctx.fillStyle = "#9fb4d8";
+  pxText("POZIOM " + level + "  ·  NAJDŁUŻSZA SERIA " + bestCombo, B.LW / 2, 158);
+  pxText("PĘKNIĘTE " + pops + "  ·  STRĄCONE " + drops, B.LW / 2, 170);
+  if (score >= best && score > 0) {
+    ctx.fillStyle = "#4cc94c";
+    ctx.font = "bold 10px monospace";
+    pxText("NOWY REKORD!", B.LW / 2, 194);
+  }
+  const b = 0.6 + 0.4 * Math.abs(Math.sin(Date.now() * 0.004));
+  ctx.globalAlpha = rise * b;
+  ctx.fillStyle = "#4cc94c";
+  ctx.font = "bold 10px monospace";
+  pxText("[ KLIKNIJ ABY ZAGRAĆ PONOWNIE ]", B.LW / 2, B.LH - 60);
+  ctx.globalAlpha = 1;
+}
+
+function render() {
+  ctx.save();
+  if (shake > 0.1) ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+  bg();
+  drawCeiling();
+  drawGrid();
+  drawEffects();
+  drawProjectile();
+  drawLauncher();
+  drawHUD();
+  drawBanner();
+  ctx.restore();
+  if (state === "menu") drawMenu();
+  if (state === "over") drawOver();
+  if (state === "stats") drawStats();
+}
+
+// ===== Pętla 60 FPS =====
+function frame(t) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.05, (t - lastT) / 1000 || 0.016);
+  lastT = t;
+  update(dt);
+  render();
+}
+buildLevel(); // tło pod menu
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
