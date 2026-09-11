@@ -14,6 +14,41 @@ export function createSeededRng(seed = 1) {
   };
 }
 
+export function activeGridColors(grid) {
+  return [...new Set([...(grid?.values?.() || [])]
+    .map((color) => Number(color) || 0)
+    .filter((color) => color > 0))]
+    .sort((a, b) => a - b);
+}
+
+export function reconcileShotQueue(queue = [], activeColors = [], replacementPicker = null) {
+  const playable = [...new Set((activeColors || []).map(Number).filter((color) => color > 0))].sort((a, b) => a - b);
+  if (!playable.length) return queue.map((shot) => ({ ...shot }));
+  const pick = typeof replacementPicker === 'function'
+    ? replacementPicker
+    : () => playable[0];
+  return queue.map((shot) => {
+    if (!shot || shot.type === 'rainbow' || !shot.color || playable.includes(shot.color)) return { ...shot };
+    const candidate = Number(pick(playable, shot));
+    const color = playable.includes(candidate) ? candidate : playable[0];
+    return { ...shot, color };
+  });
+}
+
+export function impactFeedback({ popped = 0, dropped = 0, special = 'normal', boss = false } = {}) {
+  const popCount = Math.max(0, Number(popped) || 0);
+  const dropCount = Math.max(0, Number(dropped) || 0);
+  const total = popCount + dropCount;
+  const cascade = dropCount >= 6;
+  const specialBoost = special === 'bomb' ? 1.35 : special === 'rainbow' ? 1.15 : 1;
+  const bossBoost = boss ? 1.12 : 1;
+  const baseShake = total ? Math.min(4.8, .55 + popCount * .12 + dropCount * .24) : 0;
+  const shake = Number((baseShake * specialBoost * bossBoost).toFixed(2));
+  const flash = Number(Math.min(.22, (total ? .035 + total * .006 : 0) * specialBoost * bossBoost).toFixed(3));
+  const particlesPerOrb = Math.min(12, 4 + (cascade ? 3 : 0) + (special === 'bomb' ? 2 : 0) + (total >= 12 ? 1 : 0));
+  return { shake, flash, particlesPerOrb };
+}
+
 export function evaluateObjective(objective = { type: 'clear' }, state = {}) {
   const amount = Math.max(1, Number(objective.amount) || 1);
   switch (objective.type) {
