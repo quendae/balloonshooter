@@ -1,72 +1,77 @@
-function direction(zone) {
-  const x = Number(zone.forceX) || 0;
-  const y = Number(zone.forceY) || 0;
-  const length = Math.hypot(x, y) || 1;
-  return { x: x / length, y: y / length, strength: Math.min(1, Math.hypot(x, y) / 50) };
+function direction(wind) {
+  const x = Number(wind?.forceX) || 0;
+  const y = Number(wind?.forceY) || 0;
+  const magnitude = Math.hypot(x, y);
+  if (!magnitude) return { x: 0, y: 0, magnitude: 0, strength: 0 };
+  return {
+    x: x / magnitude,
+    y: y / magnitude,
+    magnitude,
+    strength: Math.min(1, magnitude / 230),
+  };
 }
 
-function pixelArrow(ctx, x, y, dx, dy, alpha) {
-  const horizontal = Math.abs(dx) >= Math.abs(dy);
-  const sign = horizontal ? Math.sign(dx || 1) : Math.sign(dy || 1);
-  const px = Math.round(x);
-  const py = Math.round(y);
+function drawArrow(ctx, x, y, vector, alpha = .7, scale = 1) {
+  const nx = -vector.y;
+  const ny = vector.x;
+  const length = 12 * scale;
+  const tipX = x + vector.x * length;
+  const tipY = y + vector.y * length;
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.fillStyle = '#F3FAFF';
-
-  if (horizontal) {
-    const start = sign > 0 ? px - 7 : px + 7;
-    const dir = sign > 0 ? 1 : -1;
-    ctx.fillRect(Math.min(start, start + dir * 10), py - 1, 11, 2);
-    ctx.fillRect(px + dir * 5, py - 4, 2, 8);
-    ctx.fillRect(px + dir * 7, py - 2, 2, 4);
-  } else {
-    const start = sign > 0 ? py - 7 : py + 7;
-    const dir = sign > 0 ? 1 : -1;
-    ctx.fillRect(px - 1, Math.min(start, start + dir * 10), 2, 11);
-    ctx.fillRect(px - 4, py + dir * 5, 8, 2);
-    ctx.fillRect(px - 2, py + dir * 7, 4, 2);
-  }
+  ctx.strokeStyle = '#f1f9ff';
+  ctx.fillStyle = '#f1f9ff';
+  ctx.lineWidth = 1.15 * scale;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(tipX, tipY);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(tipX - vector.x * 4 * scale + nx * 3 * scale, tipY - vector.y * 4 * scale + ny * 3 * scale);
+  ctx.lineTo(tipX - vector.x * 4 * scale - nx * 3 * scale, tipY - vector.y * 4 * scale - ny * 3 * scale);
+  ctx.closePath();
+  ctx.fill();
   ctx.restore();
 }
 
-export function drawWindCorridors(ctx, zones = [], time = 0) {
-  if (!ctx || !zones?.length) return;
-  const reduced = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-  const phase = reduced ? 0 : Math.floor((time * 0.018) % 24);
+export function drawGlobalWind(ctx, wind, time = 0, B = { LW: 240, LH: 320 }) {
+  if (!ctx) return;
+  const vector = direction(wind);
+  if (!vector.magnitude) return;
+  const reduced = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
+  const phase = reduced ? 0 : (time * (.018 + vector.strength * .025)) % 52;
 
-  for (const zone of zones) {
-    const x = Math.round(Number(zone.x) || 0);
-    const y = Math.round(Number(zone.y) || 0);
-    const width = Math.max(0, Math.round(Number(zone.width) || 0));
-    const height = Math.max(0, Math.round(Number(zone.height) || 0));
-    const vector = direction(zone);
-
-    ctx.save();
-    ctx.fillStyle = 'rgba(220,242,250,.08)';
-    ctx.fillRect(x, y, width, height);
-    ctx.fillStyle = 'rgba(241,250,255,.22)';
-    for (let px = x; px < x + width; px += 8) {
-      ctx.fillRect(px, y, 4, 1);
-      ctx.fillRect(px, y + height - 1, 4, 1);
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgba(236,248,255,.26)';
+  ctx.lineWidth = .75;
+  const nx = -vector.y;
+  const ny = vector.x;
+  for (let lane = 0; lane < 6; lane += 1) {
+    const baseY = 76 + lane * 31;
+    for (let i = -1; i < 6; i += 1) {
+      const travel = i * 52 + phase;
+      const x = 18 + travel + nx * lane * 2;
+      const y = baseY + vector.y * travel * .18 + ny * Math.sin(lane * 1.7) * 3;
+      const len = 13 + vector.strength * 10;
+      ctx.globalAlpha = .14 + vector.strength * .18;
+      ctx.beginPath();
+      ctx.moveTo(x - vector.x * len * .5, y - vector.y * len * .5);
+      ctx.quadraticCurveTo(x, y - 1.5, x + vector.x * len * .5, y + vector.y * len * .5);
+      ctx.stroke();
     }
-    for (let py = y; py < y + height; py += 8) {
-      ctx.fillRect(x, py, 1, 4);
-      ctx.fillRect(x + width - 1, py, 1, 4);
-    }
-
-    const rows = Math.max(2, Math.floor(height / 32));
-    const cols = Math.max(2, Math.floor(width / 42));
-    for (let row = 0; row < rows; row += 1) {
-      for (let col = 0; col < cols; col += 1) {
-        const spacingX = width / cols;
-        const spacingY = height / rows;
-        const lane = (phase + col * 5 + row * 3) % 18 - 9;
-        const px = x + spacingX * (col + .5) + vector.x * lane * .45;
-        const py = y + spacingY * (row + .5) + vector.y * lane * .45;
-        pixelArrow(ctx, px, py, vector.x, vector.y, .38 + vector.strength * .28);
-      }
-    }
-    ctx.restore();
   }
+  ctx.restore();
+
+  const indicatorX = vector.x >= 0 ? B.LW - 31 : 17;
+  const indicatorY = 28;
+  ctx.save();
+  ctx.fillStyle = 'rgba(10,28,43,.34)';
+  ctx.beginPath();
+  ctx.roundRect(indicatorX - 8, indicatorY - 9, 32, 18, 5);
+  ctx.fill();
+  drawArrow(ctx, indicatorX, indicatorY, vector, .82, .82 + vector.strength * .18);
+  ctx.restore();
 }
