@@ -11,6 +11,7 @@ import {
 } from './sky-rescue-core.mjs';
 import { clampAimAngle, stepProjectile, toLogicalPoint, trajectoryPoints, velocityFromAngle } from './game-physics.mjs';
 import { GameRenderer } from './game-renderer.mjs';
+import { drawWindCorridors } from './wind-renderer.mjs';
 
 const SHOT_SPEED = 285;
 const MIN_AIM_Y = 242;
@@ -202,7 +203,9 @@ export class SkyRescueGame {
     this.lastTime = time;
     if (!this.paused && this.status === 'playing') this.update(dt);
     this.updateEffects(dt);
-    this.renderer.draw(this.renderState(), time);
+    const state = this.renderState();
+    this.renderer.draw(state, time);
+    drawWindCorridors(this.renderer.ctx, state.level?.windZones || [], time);
     this.raf = requestAnimationFrame(this.tick);
   }
 
@@ -214,6 +217,7 @@ export class SkyRescueGame {
       bounds: { minX: this.B.RAD, maxX: this.B.LW - this.B.RAD },
       ceilingY,
       collides: (x, y) => this.collides(x, y),
+      windZones: this.level.windZones || [],
     }) : [];
     return {
       level: this.level, grid: this.grid, objects: this.objects, queue: this.queue,
@@ -224,9 +228,11 @@ export class SkyRescueGame {
 
   update(dt) {
     if (!this.projectile) return;
+    const bounds = { minX: this.B.RAD, maxX: this.B.LW - this.B.RAD };
     const beforeVx = this.projectile.vx;
-    this.projectile = stepProjectile(this.projectile, dt, { minX: this.B.RAD, maxX: this.B.LW - this.B.RAD });
-    if (Math.sign(beforeVx) !== Math.sign(this.projectile.vx)) this.callbacks.onBounce?.();
+    this.projectile = stepProjectile(this.projectile, dt, bounds, this.level?.windZones || []);
+    const hitWall = this.projectile.x === bounds.minX || this.projectile.x === bounds.maxX;
+    if (hitWall && Math.sign(beforeVx) !== Math.sign(this.projectile.vx)) this.callbacks.onBounce?.();
     const ceilingY = this.B.rowY(this.ceilRow) - this.B.RAD * .85;
     if (this.projectile.y <= ceilingY || this.collides(this.projectile.x, this.projectile.y)) this.land();
   }
