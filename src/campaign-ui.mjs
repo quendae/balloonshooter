@@ -1,4 +1,5 @@
 import { isLevelUnlocked, MASTERY_BADGES, MASTERY_IDS } from './sky-rescue-core.mjs';
+import { balloonDataUri } from './pixel-art.mjs';
 
 function starsMarkup(count = 0) {
   return `${'★'.repeat(count)}${'☆'.repeat(Math.max(0, 3 - count))}`;
@@ -68,9 +69,10 @@ export function renderShotQueue(container, queue) {
   container.replaceChildren();
   queue.forEach((shot, index) => {
     const item = document.createElement('div');
-    item.className = 'queue-shot';
+    item.className = 'queue-shot pixel-queue-shot';
     item.dataset.type = shot.type;
-    item.style.backgroundImage = `url("assets/ball_${shot.color || 1}.png")`;
+    item.dataset.color = String(shot.color || 1);
+    item.style.backgroundImage = `url("${balloonDataUri(shot.color || 1)}")`;
     item.setAttribute('aria-label', `${index === 0 ? 'Aktualny' : `Następny ${index}`}: ${shot.type === 'normal' ? `kolor ${shot.color}` : shot.type}`);
     container.append(item);
   });
