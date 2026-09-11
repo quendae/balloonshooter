@@ -82,6 +82,8 @@ async function verifyPage(browser, name, viewport) {
   const gameOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   assert(gameOverflow <= 1, `${name}: game has ${gameOverflow}px horizontal overflow`);
 
+  if (name === 'desktop') await page.screenshot({ path: 'artifacts/desktop-aim-line.png', fullPage: true });
+
   await page.locator('#pauseButton').click();
   assert(await page.locator('#pauseDialog').evaluate((dialog) => dialog.open), `${name}: pause dialog should open`);
   await page.locator('#resumeButton').click();
@@ -114,6 +116,11 @@ function completedProgress(count) {
   return { version: 1, levels, settings: { sound: false } };
 }
 
+async function returnToMap(page) {
+  await page.locator('#backButton').click();
+  await page.locator('#pauseMapButton').click();
+}
+
 async function verifyWorldArt(browser) {
   const page = await browser.newPage({ viewport: { width: 1100, height: 860 } });
   const errors = [];
@@ -128,8 +135,19 @@ async function verifyWorldArt(browser) {
   assert((await page.locator('#gameWorldLabel').textContent())?.includes('Wyspy Chmur'), 'world art: level 6 should open cloud world');
   await page.screenshot({ path: 'artifacts/desktop-clouds-game.png', fullPage: true });
 
-  await page.locator('#backButton').click();
-  await page.locator('#pauseMapButton').click();
+  await returnToMap(page);
+  await page.locator('.level-node').nth(8).click();
+  await page.waitForTimeout(250);
+  assert((await page.locator('#gameLevelLabel').textContent())?.includes('Deszcz gwiazd'), 'weather art: level 9 should open sunset rain level');
+  await page.screenshot({ path: 'artifacts/desktop-sunset-rain-game.png', fullPage: true });
+
+  await returnToMap(page);
+  await page.locator('.level-node').nth(13).click();
+  await page.waitForTimeout(250);
+  assert((await page.locator('#gameLevelLabel').textContent())?.includes('Bez marginesu'), 'weather art: level 14 should open dusk heavy-rain level');
+  await page.screenshot({ path: 'artifacts/desktop-dusk-heavy-rain-game.png', fullPage: true });
+
+  await returnToMap(page);
   await page.locator('.level-node').nth(14).click();
   await page.waitForTimeout(250);
   assert((await page.locator('#gameWorldLabel').textContent())?.includes('Las Wiatru'), 'world art: level 15 should open forest world');
@@ -166,7 +184,7 @@ try {
   await verifyPage(browser, 'mobile', { width: 390, height: 844 });
   await verifyWorldArt(browser);
   await verifyPublicPreview(browser);
-  console.log('OK: integrated HUD, original orbs, enlarged responsive playfield, world art and public preview passed');
+  console.log('OK: integrated HUD, short aim, original orbs, responsive playfield, weather progression and public preview passed');
 } finally {
   await browser.close();
 }
