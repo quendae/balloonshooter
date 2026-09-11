@@ -96,6 +96,16 @@ test('authored level objects are attached to valid occupied cells', () => {
   }
 });
 
+test('all authored cells fit the alternating 10/9-column hex board', () => {
+  for (const level of LEVELS) {
+    for (const { c, r } of level.grid) {
+      assert.ok(r >= 0 && r <= 9, `${level.id} row ${r} is outside the board`);
+      const cols = r & 1 ? 9 : 10;
+      assert.ok(c >= 0 && c < cols, `${level.id} cell ${c},${r} is outside a ${cols}-column row`);
+    }
+  }
+});
+
 test('save normalization recovers safely from invalid or partial data', () => {
   assert.deepEqual(normalizeProgress(null), { version: 1, levels: {}, settings: { sound: true } });
   assert.deepEqual(normalizeProgress({ version: 1, levels: { 'meadow-01': { stars: 9, score: -5 } } }), {
