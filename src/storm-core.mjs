@@ -107,3 +107,69 @@ export function lightningSpawnPlan({
 
   return { strikeKey, additions };
 }
+
+function ceilingPathDepth(grid, B, startKey) {
+  if (!grid.has(startKey)) return -1;
+  const queue = [{ key: startKey, depth: 0 }];
+  const seen = new Set([startKey]);
+  while (queue.length) {
+    const current = queue.shift();
+    const [c, r] = B.split(current.key);
+    if (r === 0) return current.depth;
+    for (const [nc, nr] of B.neighbors(c, r)) {
+      const key = B.key(nc, nr);
+      if (nr > r || seen.has(key) || !grid.has(key)) continue;
+      seen.add(key);
+      queue.push({ key, depth: current.depth + 1 });
+    }
+  }
+  return -1;
+}
+
+export function deepObjectiveCandidates({ grid, B, eligibleKeys = null } = {}) {
+  if (!(grid instanceof Map) || !B || !grid.size) return [];
+  const lowestRow = B.lowestRow(grid);
+  const keys = Array.isArray(eligibleKeys) && eligibleKeys.length ? eligibleKeys : [...grid.keys()];
+  const candidates = [];
+
+  for (const key of keys) {
+    if (!grid.has(key)) continue;
+    const [c, r] = B.split(key);
+    const neighbors = B.neighbors(c, r);
+    const occupiedNeighbors = neighbors.filter(([nc, nr]) => grid.has(B.key(nc, nr))).length;
+    const hasOccupiedBelow = neighbors.some(([nc, nr]) => nr > r && grid.has(B.key(nc, nr)));
+    const pathDepth = ceilingPathDepth(grid, B, key);
+    const behindFront = r <= lowestRow - 2;
+    if (!behindFront || occupiedNeighbors < 2 || !hasOccupiedBelow || pathDepth < 2) continue;
+
+    const score = 4
+      + Math.min(4, occupiedNeighbors)
+      + 2
+      + Math.min(3, pathDepth);
+    candidates.push({ key, c, r, score, occupiedNeighbors, pathDepth });
+  }
+
+  return candidates.sort((a, b) => b.score - a.score || a.r - b.r || a.c - b.c);
+}
+
+export function chooseDeepObjectiveKeys({
+  grid,
+  B,
+  eligibleKeys = null,
+  count = 1,
+  rng = Math.random,
+} = {}) {
+  const remaining = deepObjectiveCandidates({ grid, B, eligibleKeys });
+  const chosen = [];
+  const wanted = Math.max(0, Number(count) || 0);
+
+  while (chosen.length < wanted && remaining.length) {
+    const bestScore = remaining[0].score;
+    const best = remaining.filter((item) => item.score === bestScore);
+    const index = Math.floor((rng?.() ?? 0) * best.length) % best.length;
+    const pick = best[index];
+    chosen.push(pick.key);
+    remaining.splice(remaining.findIndex((item) => item.key === pick.key), 1);
+  }
+  return chosen;
+}
