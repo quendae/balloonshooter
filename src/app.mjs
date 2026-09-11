@@ -1,48 +1,107 @@
 import { LEVELS, WORLDS, getWorld } from './levels.mjs';
-import { applyCampaignResult } from './sky-rescue-core.mjs';
+import { applyCampaignResult, evaluateMasteries } from './sky-rescue-core.mjs';
 import { loadProgress, saveProgress } from './save.mjs';
 import { SkyRescueGame } from './game.mjs';
-import { firstPlayableLevel, renderBossPips, renderCampaignMap, renderShotQueue, totalStars } from './campaign-ui.mjs';
+import { SkyAudio } from './audio.mjs';
+import {
+  firstPlayableLevel,
+  renderBossPips,
+  renderCampaignMap,
+  renderMasteryBadges,
+  renderShotQueue,
+  totalMasteries,
+  totalStars,
+} from './campaign-ui.mjs';
 
 const $ = (id) => document.getElementById(id);
 const refs = {
   mapScreen: $('mapScreen'), gameScreen: $('gameScreen'), campaignMap: $('campaignMap'), totalStars: $('totalStars'),
+  totalMasteries: $('totalMasteries'), campaignProgressBank: $('campaignProgressBank'), soundButton: $('soundButton'),
   continueButton: $('continueButton'), homeButton: $('homeButton'), backButton: $('backButton'), pauseButton: $('pauseButton'),
   canvas: $('gameCanvas'), gameWorldLabel: $('gameWorldLabel'), gameLevelLabel: $('gameLevelLabel'), levelHint: $('levelHint'),
   objectiveLabel: $('objectiveLabel'), objectiveCurrent: $('objectiveCurrent'), objectiveTarget: $('objectiveTarget'),
   scoreValue: $('scoreValue'), comboValue: $('comboValue'), shotQueue: $('shotQueue'), shotsValue: $('shotsValue'),
   dropValue: $('dropValue'), missesValue: $('missesValue'), comboCallout: $('comboCallout'), bossMeter: $('bossMeter'),
   bossPips: $('bossPips'), resultDialog: $('resultDialog'), resultKicker: $('resultKicker'), resultTitle: $('resultTitle'),
-  resultStars: $('resultStars'), resultScore: $('resultScore'), resultDetail: $('resultDetail'), resultMapButton: $('resultMapButton'),
-  retryButton: $('retryButton'), nextButton: $('nextButton'), pauseDialog: $('pauseDialog'), pauseMapButton: $('pauseMapButton'),
-  resumeButton: $('resumeButton'),
+  resultStars: $('resultStars'), resultScore: $('resultScore'), resultDetail: $('resultDetail'), resultMasteries: $('resultMasteries'),
+  resultMapButton: $('resultMapButton'), retryButton: $('retryButton'), nextButton: $('nextButton'), pauseDialog: $('pauseDialog'),
+  pauseMapButton: $('pauseMapButton'), resumeButton: $('resumeButton'),
 };
 
 let progress = loadProgress();
+const audio = new SkyAudio(progress.settings.sound);
 let currentLevel = null;
 let calloutTimer = 0;
+let runMastery = null;
+
+function resetRunMastery() {
+  runMastery = {
+    lastShotsUsed: 0,
+    pendingBounced: false,
+    successfulBankShots: 0,
+    largestDrop: 0,
+  };
+}
+
+function trackCallout(text) {
+  if (text === 'AVALANCHE' || text === 'SKY FALL') runMastery.largestDrop = Math.max(runMastery.largestDrop, 6);
+}
 
 const game = new SkyRescueGame(refs.canvas, {
   onState: updateHud,
   onComplete: showWin,
   onFail: showLoss,
-  onCallout: flashCallout,
-  onRescue: () => flashCallout('RESCUE!'),
-  onCollect: () => flashCallout('STAR!'),
-  onAnchor: () => flashCallout('ANCHOR DOWN'),
-  onCeilingDrop: () => flashCallout('CEILING DROP'),
+  onShot: (shot) => {
+    runMastery.pendingBounced = false;
+    audio.shot(shot.type);
+  },
+  onBounce: () => {
+    runMastery.pendingBounced = true;
+    audio.bounce();
+  },
+  onCallout: (text) => {
+    trackCallout(text);
+    audio.pop(text);
+    flashCallout(text);
+  },
+  onRescue: () => { audio.rescue(); flashCallout('RESCUE!'); },
+  onCollect: () => { audio.collect(); flashCallout('STAR!'); },
+  onAnchor: () => { audio.anchor(); flashCallout('ANCHOR DOWN'); },
+  onCeilingDrop: () => { audio.ceiling(); flashCallout('CEILING DROP'); },
   onBossPhase: ({ current, total }) => {
     renderBossPips(refs.bossPips, current, total);
+    audio.boss();
     flashCallout(current >= total ? 'STORM BROKEN' : `PHASE ${current}/${total}`);
   },
 });
 
 function renderMap() {
   renderCampaignMap(refs.campaignMap, WORLDS, LEVELS, progress, startLevel);
-  refs.totalStars.textContent = String(totalStars(progress));
+  const stars = totalStars(progress);
+  const masteries = totalMasteries(progress);
+  refs.totalStars.textContent = String(stars);
+  refs.totalMasteries.textContent = String(masteries);
+  refs.campaignProgressBank.setAttribute('aria-label', `${stars} z 45 gwiazdek i ${masteries} z 45 odznak mastery`);
   const next = firstPlayableLevel(LEVELS, progress);
   refs.continueButton.textContent = progress.levels?.[next.id]?.completed ? 'Zagraj ponownie' : `Leć do poziomu ${next.number}`;
   refs.continueButton.onclick = () => startLevel(next);
+}
+
+function syncSoundButton() {
+  const enabled = progress.settings.sound !== false;
+  refs.soundButton.dataset.enabled = String(enabled);
+  refs.soundButton.setAttribute('aria-pressed', String(enabled));
+  refs.soundButton.setAttribute('aria-label', enabled ? 'Wyłącz dźwięki' : 'Włącz dźwięki');
+}
+
+function toggleSound() {
+  progress = {
+    ...progress,
+    settings: { ...progress.settings, sound: progress.settings.sound === false },
+  };
+  progress = saveProgress(progress);
+  audio.setEnabled(progress.settings.sound);
+  syncSoundButton();
 }
 
 function showMap() {
@@ -56,6 +115,7 @@ function showMap() {
 
 function startLevel(level) {
   currentLevel = level;
+  resetRunMastery();
   const world = getWorld(level.world);
   refs.mapScreen.hidden = true;
   refs.gameScreen.hidden = false;
@@ -73,6 +133,11 @@ function startLevel(level) {
 
 function updateHud(snapshot) {
   if (!snapshot) return;
+  if (runMastery && snapshot.shotsUsed > runMastery.lastShotsUsed) {
+    if (runMastery.pendingBounced && snapshot.combo > 0) runMastery.successfulBankShots += 1;
+    runMastery.pendingBounced = false;
+    runMastery.lastShotsUsed = snapshot.shotsUsed;
+  }
   refs.objectiveLabel.textContent = snapshot.objectiveLabel;
   refs.objectiveCurrent.textContent = String(snapshot.objective.current);
   refs.objectiveTarget.textContent = String(snapshot.objective.target);
@@ -95,18 +160,27 @@ function flashCallout(text) {
 }
 
 function showWin(result) {
-  progress = applyCampaignResult(progress, result.level.id, result.stars, result.score);
+  const previousMasteries = progress.levels?.[result.level.id]?.masteries || [];
+  const masteries = evaluateMasteries({ ...runMastery, misses: result.misses });
+  const newMasteries = masteries.filter((id) => !previousMasteries.includes(id));
+  progress = applyCampaignResult(progress, result.level.id, result.stars, result.score, masteries);
   progress = saveProgress(progress);
+  const storedMasteries = progress.levels?.[result.level.id]?.masteries || masteries;
   renderMap();
+  audio.win();
 
   refs.resultKicker.textContent = result.level.boss ? 'Burza pokonana' : 'Poziom ukończony';
   refs.resultTitle.textContent = result.stars === 3 ? 'Perfekcyjny lot!' : result.stars === 2 ? 'Świetny lot!' : 'Misja wykonana!';
   refs.resultScore.textContent = result.score.toLocaleString('pl-PL');
   refs.resultStars.innerHTML = [0, 1, 2].map((index) => `<span class="${index < result.stars ? '' : 'empty'}" aria-hidden="true">★</span>`).join('');
   refs.resultStars.setAttribute('aria-label', `${result.stars} z 3 gwiazdek`);
-  refs.resultDetail.textContent = result.optionalComplete
-    ? 'Cel dodatkowy ukończony — trzecia gwiazdka jest Twoja.'
-    : `${result.shotsRemaining} strzałów zostało • ${result.misses} pudeł.`;
+  refs.resultDetail.textContent = newMasteries.length
+    ? `Nowe mastery: ${newMasteries.length} • ${result.shotsRemaining} strzałów zostało • ${result.misses} pudeł.`
+    : result.optionalComplete
+      ? 'Cel dodatkowy ukończony — trzecia gwiazdka jest Twoja.'
+      : `${result.shotsRemaining} strzałów zostało • ${result.misses} pudeł.`;
+  refs.resultMasteries.hidden = false;
+  renderMasteryBadges(refs.resultMasteries, storedMasteries, newMasteries);
 
   const index = LEVELS.findIndex((level) => level.id === result.level.id);
   const next = LEVELS[index + 1] || null;
@@ -116,12 +190,14 @@ function showWin(result) {
 }
 
 function showLoss(result) {
+  audio.loss();
   refs.resultKicker.textContent = 'Spróbuj innej drogi';
   refs.resultTitle.textContent = 'Jeszcze jeden lot';
   refs.resultScore.textContent = result.score.toLocaleString('pl-PL');
   refs.resultStars.innerHTML = '<span class="empty">★</span><span class="empty">★</span><span class="empty">★</span>';
   refs.resultStars.setAttribute('aria-label', '0 z 3 gwiazdek');
   refs.resultDetail.textContent = result.reason;
+  refs.resultMasteries.hidden = true;
   refs.nextButton.hidden = true;
   refs.resultDialog.showModal();
 }
@@ -146,6 +222,7 @@ function leaveForMap() {
 refs.homeButton.addEventListener('click', () => refs.gameScreen.hidden ? showMap() : openPause());
 refs.backButton.addEventListener('click', openPause);
 refs.pauseButton.addEventListener('click', openPause);
+refs.soundButton.addEventListener('click', toggleSound);
 refs.resumeButton.addEventListener('click', resumeGame);
 refs.pauseMapButton.addEventListener('click', leaveForMap);
 refs.resultMapButton.addEventListener('click', showMap);
@@ -163,4 +240,5 @@ refs.resultDialog.addEventListener('cancel', (event) => {
   showMap();
 });
 
+syncSoundButton();
 renderMap();
