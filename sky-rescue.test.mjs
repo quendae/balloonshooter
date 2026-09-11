@@ -6,6 +6,9 @@ import {
   scoreTurn,
   applyCampaignResult,
   isLevelUnlocked,
+  chooseRainbowColor,
+  bombAffectedKeys,
+  isOptionalComplete,
 } from './src/sky-rescue-core.mjs';
 import { LEVELS } from './src/levels.mjs';
 import { normalizeProgress } from './src/save.mjs';
@@ -87,6 +90,16 @@ test('campaign ships exactly three worlds with five authored levels each', () =>
   assert.ok(LEVELS.some((level) => level.boss));
 });
 
+test('authored level objects are attached to valid occupied cells', () => {
+  for (const level of LEVELS) {
+    const occupied = new Set(level.grid.map(({ c, r }) => `${c},${r}`));
+    assert.equal(occupied.size, level.grid.length, `${level.id} has duplicate cells`);
+    for (const object of level.objects) {
+      assert.ok(occupied.has(object.at.join(',')), `${level.id} object ${object.id} is not attached to a balloon`);
+    }
+  }
+});
+
 test('save normalization recovers safely from invalid or partial data', () => {
   assert.deepEqual(normalizeProgress(null), { version: 1, levels: {}, settings: { sound: true } });
   assert.deepEqual(normalizeProgress({ version: 1, levels: { 'meadow-01': { stars: 9, score: -5 } } }), {
@@ -94,4 +107,21 @@ test('save normalization recovers safely from invalid or partial data', () => {
     levels: { 'meadow-01': { stars: 3, score: 0, completed: true } },
     settings: { sound: true },
   });
+});
+
+test('rainbow chooses the most represented adjacent color', () => {
+  const grid = new Map([['2,2', 1], ['3,2', 2], ['2,3', 2]]);
+  const neighbors = () => [[2, 2], [3, 2], [2, 3]];
+  assert.equal(chooseRainbowColor(grid, 2, 1, neighbors), 2);
+});
+
+test('bomb affects its landing cell and unique immediate neighbors', () => {
+  const neighbors = () => [[1, 0], [0, 1], [1, 1], [1, 1]];
+  assert.deepEqual(bombAffectedKeys(0, 0, neighbors).sort(), ['0,0', '0,1', '1,0', '1,1']);
+});
+
+test('optional challenge supports accuracy and shots-left rules', () => {
+  assert.equal(isOptionalComplete({ type: 'accuracy', maxMisses: 2 }, { misses: 2, shotsRemaining: 0 }), true);
+  assert.equal(isOptionalComplete({ type: 'accuracy', maxMisses: 2 }, { misses: 3, shotsRemaining: 9 }), false);
+  assert.equal(isOptionalComplete({ type: 'shots-left', amount: 4 }, { misses: 10, shotsRemaining: 4 }), true);
 });
