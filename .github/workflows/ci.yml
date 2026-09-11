@@ -49,6 +49,7 @@ jobs:
           node --check src/save.mjs
           node --check src/game-physics.mjs
           node --check src/storm-core.mjs
+          node --check src/storm-feedback.mjs
           node --check src/pixel-art.mjs
           node --check src/game-renderer.mjs
           node --check src/wind-renderer.mjs
