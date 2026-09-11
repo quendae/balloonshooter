@@ -1,0 +1,23 @@
+/* Hybrid pass: keep the retro/pixel shell, but let gameplay balloons stay smooth. */
+.game-toolbar {
+  max-width: 1120px;
+}
+
+#gameCanvas {
+  image-rendering: auto;
+}
+
+.queue-shot {
+  border-radius: 50%;
+  background-size: contain;
+  image-rendering: auto;
+  filter: none;
+}
+
+.queue-shot:first-child {
+  filter: drop-shadow(0 5px 0 rgba(23, 40, 58, .18));
+}
+
+.queue-shot:not(:first-child) {
+  opacity: .82;
+}
