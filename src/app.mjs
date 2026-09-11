@@ -2,6 +2,7 @@ import { LEVELS, WORLDS, getWorld } from './levels.mjs';
 import { applyCampaignResult, evaluateMasteries } from './sky-rescue-core.mjs';
 import { loadProgress, saveProgress } from './save.mjs';
 import { SkyRescueGame } from './game.mjs';
+import { applyStormFeedbackPatch } from './storm-feedback.mjs';
 import { SkyAudio } from './audio.mjs';
 import {
   firstPlayableLevel,
@@ -42,6 +43,8 @@ function resetRunMastery() {
 function trackCallout(text) {
   if (text === 'AVALANCHE' || text === 'SKY FALL') runMastery.largestDrop = Math.max(runMastery.largestDrop, 6);
 }
+
+applyStormFeedbackPatch(SkyRescueGame);
 
 const game = new SkyRescueGame(refs.canvas, {
   onState: updateHud,
