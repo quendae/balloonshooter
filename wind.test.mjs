@@ -14,7 +14,7 @@ function test(name, fn) {
 
 const bounds = { minX: 12, maxX: 228 };
 
-test('windAtPoint sums only wind zones that contain the projectile', () => {
+test('legacy windAtPoint compatibility still sums matching zones during migration', () => {
   const zones = [
     { x: 40, y: 60, width: 100, height: 120, forceX: 30, forceY: 0 },
     { x: 60, y: 80, width: 40, height: 40, forceX: -10, forceY: -4 },
@@ -24,36 +24,33 @@ test('windAtPoint sums only wind zones that contain the projectile', () => {
   assert.deepEqual(windAtPoint(zones, 10, 10), { x: 0, y: 0 });
 });
 
-test('projectile receives deterministic wind acceleration inside a corridor', () => {
-  const zones = [{ x: 40, y: 40, width: 120, height: 160, forceX: 40, forceY: 0 }];
-  const next = stepProjectile({ x: 80, y: 120, vx: 20, vy: -100 }, 0.25, bounds, zones);
-  assert.equal(next.vx, 30);
-  assert.equal(next.vy, -100);
-  assert.equal(next.x, 87.5);
-  assert.equal(next.y, 95);
+test('whole-board wind accelerates a projectile everywhere', () => {
+  const wind = { forceX: 40, forceY: -8 };
+  const a = stepProjectile({ x: 80, y: 120, vx: 20, vy: -100 }, 0.25, bounds, wind);
+  const b = stepProjectile({ x: 180, y: 220, vx: 20, vy: -100 }, 0.25, bounds, wind);
+  assert.equal(a.vx, 30);
+  assert.equal(a.vy, -102);
+  assert.equal(b.vx, 30);
+  assert.equal(b.vy, -102);
 });
 
-test('projectile flight remains unchanged outside wind corridors', () => {
-  const zones = [{ x: 150, y: 20, width: 50, height: 50, forceX: 80, forceY: 0 }];
+test('zero whole-board wind leaves projectile velocity unchanged', () => {
   assert.deepEqual(
-    stepProjectile({ x: 80, y: 120, vx: 20, vy: -100 }, 0.25, bounds, zones),
+    stepProjectile({ x: 80, y: 120, vx: 20, vy: -100 }, 0.25, bounds, { forceX: 0, forceY: 0 }),
     { x: 85, y: 95, vx: 20, vy: -100 },
   );
 });
 
-test('authored wind corridors stay inside the logical board and are introduced after the meadow tutorial', () => {
-  const windy = LEVELS.filter((level) => (level.windZones || []).length > 0);
-  assert.ok(windy.length >= 5, 'campaign should contain several authored wind levels');
-  assert.ok(windy.every((level) => level.world !== 'meadow'), 'meadow should remain the no-wind tutorial world');
-  assert.ok(LEVELS.filter((level) => level.world === 'forest').every((level) => (level.windZones || []).length > 0), 'every forest level should teach or combine wind');
+test('authored Forest and Storm content uses whole-board wind instead of rectangular zones', () => {
+  const windyWorlds = LEVELS.filter((level) => level.world === 'forest' || level.world === 'storm');
+  assert.equal(windyWorlds.length, 10);
+  assert.ok(windyWorlds.every((level) => level.wind || level.windSequence), 'every Forest/Storm level should expose global wind');
+  assert.ok(windyWorlds.every((level) => !(level.windZones || []).length), 'Forest/Storm should not author rectangle wind zones');
+  assert.ok(LEVELS.filter((level) => level.world === 'meadow').every((level) => !level.wind && !level.windSequence), 'meadow remains the no-wind tutorial world');
 
-  for (const level of windy) {
-    for (const zone of level.windZones) {
-      assert.ok(zone.x >= 0 && zone.y >= 0, `${level.id}: wind starts outside board`);
-      assert.ok(zone.width > 0 && zone.height > 0, `${level.id}: wind zone has no area`);
-      assert.ok(zone.x + zone.width <= 240, `${level.id}: wind exceeds board width`);
-      assert.ok(zone.y + zone.height <= 320, `${level.id}: wind exceeds board height`);
-      assert.ok(Math.abs(zone.forceX || 0) + Math.abs(zone.forceY || 0) > 0, `${level.id}: wind has no force`);
-    }
+  for (const level of windyWorlds) {
+    const vectors = level.windSequence || [level.wind];
+    assert.ok(vectors.length > 0, `${level.id}: wind vector list is empty`);
+    assert.ok(vectors.every((wind) => Math.abs(wind?.forceX || 0) + Math.abs(wind?.forceY || 0) > 0), `${level.id}: wind must carry force`);
   }
 });
