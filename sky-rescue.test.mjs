@@ -9,6 +9,7 @@ import {
   chooseRainbowColor,
   bombAffectedKeys,
   isOptionalComplete,
+  evaluateMasteries,
 } from './src/sky-rescue-core.mjs';
 import { LEVELS } from './src/levels.mjs';
 import { normalizeProgress } from './src/save.mjs';
@@ -61,11 +62,22 @@ test('turn scoring values dropped balloons more than normal pops', () => {
   assert.equal(result.total, 345);
 });
 
-test('campaign progress keeps the best stars and best score', () => {
+test('mastery awards reward trick shots, avalanches and perfect aim', () => {
+  assert.deepEqual(evaluateMasteries({ successfulBankShots: 1, largestDrop: 8, misses: 0 }), ['bank-shot', 'avalanche', 'perfect-aim']);
+  assert.deepEqual(evaluateMasteries({ successfulBankShots: 0, largestDrop: 5, misses: 2 }), []);
+  assert.deepEqual(evaluateMasteries({ successfulBankShots: 3, largestDrop: 6, misses: 1 }), ['bank-shot', 'avalanche']);
+});
+
+test('campaign progress keeps the best stars, score and union of masteries', () => {
   let progress = { levels: {} };
-  progress = applyCampaignResult(progress, 'meadow-01', 2, 900);
-  progress = applyCampaignResult(progress, 'meadow-01', 1, 1200);
-  assert.deepEqual(progress.levels['meadow-01'], { stars: 2, score: 1200, completed: true });
+  progress = applyCampaignResult(progress, 'meadow-01', 2, 900, ['bank-shot']);
+  progress = applyCampaignResult(progress, 'meadow-01', 1, 1200, ['perfect-aim']);
+  assert.deepEqual(progress.levels['meadow-01'], {
+    stars: 2,
+    score: 1200,
+    completed: true,
+    masteries: ['bank-shot', 'perfect-aim'],
+  });
 });
 
 test('campaign unlocks levels sequentially', () => {
@@ -108,9 +120,9 @@ test('all authored cells fit the alternating 10/9-column hex board', () => {
 
 test('save normalization recovers safely from invalid or partial data', () => {
   assert.deepEqual(normalizeProgress(null), { version: 1, levels: {}, settings: { sound: true } });
-  assert.deepEqual(normalizeProgress({ version: 1, levels: { 'meadow-01': { stars: 9, score: -5 } } }), {
+  assert.deepEqual(normalizeProgress({ version: 1, levels: { 'meadow-01': { stars: 9, score: -5, masteries: ['bank-shot', 'garbage', 'bank-shot'] } } }), {
     version: 1,
-    levels: { 'meadow-01': { stars: 3, score: 0, completed: true } },
+    levels: { 'meadow-01': { stars: 3, score: 0, completed: true, masteries: ['bank-shot'] } },
     settings: { sound: true },
   });
 });
@@ -146,6 +158,7 @@ test('projectile step reflects from left and right walls without changing vertic
   const right = stepProjectile({ x: 235, y: 100, vx: 20, vy: -50 }, 0.1, { minX: 12, maxX: 228 });
   assert.equal(right.x, 228);
   assert.equal(right.vx, -20);
+  assert.equal(right.vy, -50);
 });
 
 test('client coordinates map into logical canvas coordinates', () => {
