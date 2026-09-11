@@ -1,10 +1,12 @@
 import {
   WORLD_PIXEL_PALETTES,
-  drawPixelBalloon,
   drawPixelLauncher,
   drawPixelObject,
   drawPixelSpecial,
 } from './pixel-art.mjs';
+
+const COLORS = ['#000', '#F35D6A', '#F5C84C', '#48A9E6', '#63B96D', '#9A6FE8', '#F18A3D'];
+const RENDER_SCALE = 3;
 
 function snap(value) {
   return Math.round(value);
@@ -36,9 +38,17 @@ export class GameRenderer {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.B = B;
-    canvas.width = B.LW;
-    canvas.height = B.LH;
+    this.images = new Map();
+    canvas.width = B.LW * RENDER_SCALE;
+    canvas.height = B.LH * RENDER_SCALE;
+    this.ctx.setTransform(RENDER_SCALE, 0, 0, RENDER_SCALE, 0, 0);
     this.ctx.imageSmoothingEnabled = false;
+
+    for (let color = 1; color <= 6; color += 1) {
+      const image = new Image();
+      image.src = `assets/ball_${color}.png`;
+      this.images.set(color, image);
+    }
   }
 
   draw(state, time = 0) {
@@ -62,9 +72,8 @@ export class GameRenderer {
 
     for (const item of state.falling) {
       ctx.save();
-      ctx.translate(snap(item.x), snap(item.y));
-      const quarter = Math.round(item.rot / (Math.PI / 2)) * (Math.PI / 2);
-      ctx.rotate(quarter);
+      ctx.translate(item.x, item.y);
+      ctx.rotate(item.rot);
       this.drawBalloon(item.color, 0, 0, 0.92);
       ctx.restore();
     }
@@ -94,7 +103,6 @@ export class GameRenderer {
     ctx.fillStyle = palette.skyBottom;
     ctx.fillRect(0, split, this.B.LW, this.B.LH - split);
 
-    // Deliberately chunky two-tone horizon band: no gradients, no anti-aliased vectors.
     ctx.fillStyle = palette.far;
     for (let x = 0; x < this.B.LW; x += 16) {
       const rise = ((x / 16) % 4) * 3;
@@ -201,7 +209,25 @@ export class GameRenderer {
   }
 
   drawBalloon(color, x, y, scale = 1) {
-    drawPixelBalloon(this.ctx, color, snap(x), snap(y), scale);
+    const ctx = this.ctx;
+    const image = this.images.get(color);
+    const size = this.B.RAD * 2 * scale;
+    if (image?.complete && image.naturalWidth) {
+      const smoothing = ctx.imageSmoothingEnabled;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(image, x - size / 2, y - size / 2, size, size);
+      ctx.imageSmoothingEnabled = smoothing;
+      return;
+    }
+
+    ctx.fillStyle = COLORS[color] || '#fff';
+    ctx.beginPath();
+    ctx.arc(x, y, size / 2 - 1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.55)';
+    ctx.beginPath();
+    ctx.arc(x - size * .16, y - size * .18, size * .12, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   drawShot(shot, x, y) {
