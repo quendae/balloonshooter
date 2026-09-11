@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feat/sky-rescue-v1
+      - feat/sky-rescue-v1-wind
   pull_request:
 
 jobs:
@@ -20,6 +21,8 @@ jobs:
         run: node balloon.test.js
       - name: Sky Rescue tests
         run: node sky-rescue.test.mjs
+      - name: Wind corridor tests
+        run: node wind.test.mjs
       - name: Authored level integrity tests
         run: node level-integrity.test.mjs
       - name: JavaScript syntax checks
