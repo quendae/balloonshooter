@@ -87,13 +87,13 @@ test('campaign unlocks levels sequentially', () => {
   assert.equal(isLevelUnlocked(LEVELS[2], LEVELS, progress), false);
 });
 
-test('campaign ships exactly three worlds with five authored levels each', () => {
-  assert.equal(LEVELS.length, 15);
+test('campaign ships exactly four worlds with five authored levels each', () => {
+  assert.equal(LEVELS.length, 20);
   const counts = LEVELS.reduce((acc, level) => {
     acc[level.world] = (acc[level.world] || 0) + 1;
     return acc;
   }, {});
-  assert.deepEqual(counts, { meadow: 5, clouds: 5, forest: 5 });
+  assert.deepEqual(counts, { meadow: 5, clouds: 5, forest: 5, storm: 5 });
   assert.ok(LEVELS.some((level) => level.objective.type === 'rescue'));
   assert.ok(LEVELS.some((level) => level.objective.type === 'collect'));
   assert.ok(LEVELS.some((level) => level.objective.type === 'anchors'));
