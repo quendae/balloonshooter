@@ -9,13 +9,20 @@ import {
   objectiveLabel,
   scoreTurn,
 } from './sky-rescue-core.mjs';
-import { clampAimAngle, stepProjectile, toLogicalPoint, trajectoryPoints, velocityFromAngle } from './game-physics.mjs';
+import {
+  SHOT_SPEED,
+  clampAimAngle,
+  shouldShowTrajectory,
+  stepProjectile,
+  toLogicalPoint,
+  trajectoryPoints,
+  velocityFromAngle,
+} from './game-physics.mjs';
 import { GameRenderer } from './game-renderer.mjs';
 import { drawWindCorridors } from './wind-renderer.mjs';
 
-const SHOT_SPEED = 285;
 const MIN_AIM_Y = 242;
-const FX_COLORS = ['#000', '#F35D6A', '#F5C84C', '#48A9E6', '#63B96D', '#9A6FE8', '#F18A3D'];
+const FX_COLORS = ['#000', '#ff4455', '#a05cf0', '#ffd93d', '#4cc94c', '#4da3ff', '#ff6fb3'];
 
 export class SkyRescueGame {
   constructor(canvas, callbacks = {}) {
@@ -40,7 +47,7 @@ export class SkyRescueGame {
 
     canvas.tabIndex = 0;
     canvas.setAttribute('role', 'application');
-    canvas.setAttribute('aria-label', 'Plansza Balloon Sky Rescue. Celuj myszą lub strzałkami i strzelaj spacją.');
+    canvas.setAttribute('aria-label', 'Plansza Sky Rescue. Celuj myszą lub strzałkami i strzelaj spacją.');
     this.pointerMove = (e) => this.onPointerMove(e);
     this.pointerDown = (e) => this.onPointerDown(e);
     this.keyDown = (e) => this.onKeyDown(e);
@@ -211,8 +218,9 @@ export class SkyRescueGame {
 
   renderState() {
     const ceilingY = this.level ? this.B.rowY(this.ceilRow) - this.B.RAD * .85 : 0;
-    const velocity = velocityFromAngle(this.aimAngle, 280);
-    const trajectory = this.level ? trajectoryPoints({
+    const showTrajectory = Boolean(this.level && shouldShowTrajectory(this.queue[0]) && !this.projectile && this.status === 'playing' && !this.paused);
+    const velocity = velocityFromAngle(this.aimAngle, SHOT_SPEED);
+    const trajectory = showTrajectory ? trajectoryPoints({
       x: this.B.LW / 2, y: this.B.LAUNCH_Y, ...velocity,
       bounds: { minX: this.B.RAD, maxX: this.B.LW - this.B.RAD },
       ceilingY,
@@ -222,7 +230,7 @@ export class SkyRescueGame {
     return {
       level: this.level, grid: this.grid, objects: this.objects, queue: this.queue,
       projectile: this.projectile, particles: this.particles, falling: this.falling,
-      status: this.status, paused: this.paused, ceilRow: this.ceilRow, trajectory,
+      status: this.status, paused: this.paused, ceilRow: this.ceilRow, trajectory, showTrajectory,
     };
   }
 
@@ -302,7 +310,7 @@ export class SkyRescueGame {
     if (this.status !== 'playing') return;
     if (this.level.maxShots - this.shotsUsed <= 0) return this.fail('Skończyły się strzały.');
     const lowest = this.B.lowestRow(this.grid);
-    if (lowest >= 0 && this.B.rowY(lowest) + this.B.RAD >= this.B.LAUNCH_Y - 17) return this.fail('Balony zeszły zbyt nisko.');
+    if (lowest >= 0 && this.B.rowY(lowest) + this.B.RAD >= this.B.LAUNCH_Y - 17) return this.fail('Kulki zeszły zbyt nisko.');
     this.emitState();
   }
 
