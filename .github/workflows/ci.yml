@@ -32,6 +32,7 @@ jobs:
           node --check src/game-renderer.mjs
           node --check src/game.mjs
           node --check src/campaign-ui.mjs
+          node --check src/audio.mjs
           node --check src/app.mjs
 
   browser-smoke:
