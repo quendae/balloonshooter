@@ -1,3 +1,5 @@
+import { MASTERY_IDS } from './sky-rescue-core.mjs';
+
 const STORAGE_KEY = 'balloon-sky-rescue-v1';
 
 export function normalizeProgress(raw) {
@@ -7,10 +9,12 @@ export function normalizeProgress(raw) {
     if (!entry || typeof entry !== 'object') continue;
     const stars = Math.max(0, Math.min(3, Number(entry.stars) || 0));
     const score = Math.max(0, Number(entry.score) || 0);
+    const masterySet = new Set(Array.isArray(entry.masteries) ? entry.masteries : []);
     levels[id] = {
       stars,
       score,
       completed: Boolean(entry.completed || stars > 0),
+      masteries: MASTERY_IDS.filter((mastery) => masterySet.has(mastery)),
     };
   }
   return {
