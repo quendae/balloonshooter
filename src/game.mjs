@@ -1,17 +1,21 @@
 import {
+  activeGridColors,
   bombAffectedKeys,
   calculateStars,
   chooseRainbowColor,
   comboCallout,
   createSeededRng,
   evaluateObjective,
+  impactFeedback,
   isOptionalComplete,
   objectiveLabel,
+  reconcileShotQueue,
   scoreTurn,
 } from './sky-rescue-core.mjs';
 import {
   SHOT_SPEED,
   clampAimAngle,
+  shortAimSegment,
   shouldShowTrajectory,
   stepProjectile,
   toLogicalPoint,
@@ -44,6 +48,11 @@ export class SkyRescueGame {
     this.raf = 0;
     this.lastTime = 0;
     this.finishTimer = 0;
+    this.shakeTime = 0;
+    this.shakePower = 0;
+    this.flashTime = 0;
+    this.flashStrength = 0;
+    this.reducedMotion = Boolean(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
 
     canvas.tabIndex = 0;
     canvas.setAttribute('role', 'application');
@@ -84,6 +93,10 @@ export class SkyRescueGame {
     this.specialDeck = [...(level.specials || [])];
     this.specialCursor = 0;
     this.aimAngle = -Math.PI / 2;
+    this.shakeTime = 0;
+    this.shakePower = 0;
+    this.flashTime = 0;
+    this.flashStrength = 0;
     this.fillQueue();
     this.emitState();
     cancelAnimationFrame(this.raf);
@@ -160,7 +173,17 @@ export class SkyRescueGame {
   }
 
   pickColor() {
-    return this.B.pickPlayableColor(this.grid, null, this.rng) || 1 + Math.floor(this.rng() * 5);
+    const colors = activeGridColors(this.grid);
+    if (!colors.length) return 1;
+    return colors[Math.min(colors.length - 1, Math.floor(this.rng() * colors.length))];
+  }
+
+  reconcileQueueColors() {
+    const colors = activeGridColors(this.grid);
+    if (!colors.length) return;
+    this.queue = reconcileShotQueue(this.queue, colors, (playable) => (
+      playable[Math.min(playable.length - 1, Math.floor(this.rng() * playable.length))]
+    ));
   }
 
   onPointerMove(event) {
@@ -217,8 +240,9 @@ export class SkyRescueGame {
   }
 
   renderState() {
+    const readyToAim = Boolean(this.level && !this.projectile && this.status === 'playing' && !this.paused);
     const ceilingY = this.level ? this.B.rowY(this.ceilRow) - this.B.RAD * .85 : 0;
-    const showTrajectory = Boolean(this.level && shouldShowTrajectory(this.queue[0]) && !this.projectile && this.status === 'playing' && !this.paused);
+    const showTrajectory = Boolean(readyToAim && shouldShowTrajectory(this.queue[0]));
     const velocity = velocityFromAngle(this.aimAngle, SHOT_SPEED);
     const trajectory = showTrajectory ? trajectoryPoints({
       x: this.B.LW / 2, y: this.B.LAUNCH_Y, ...velocity,
@@ -227,10 +251,23 @@ export class SkyRescueGame {
       collides: (x, y) => this.collides(x, y),
       windZones: this.level.windZones || [],
     }) : [];
+    const aimSegment = readyToAim ? shortAimSegment({
+      x: this.B.LW / 2,
+      y: this.B.LAUNCH_Y,
+      angle: this.aimAngle,
+      length: 36,
+    }) : null;
+    const shake = !this.reducedMotion && this.shakeTime > 0
+      ? this.shakePower * Math.min(1, this.shakeTime / .12)
+      : 0;
+    const flash = this.flashTime > 0
+      ? this.flashStrength * Math.min(1, this.flashTime / .08)
+      : 0;
     return {
       level: this.level, grid: this.grid, objects: this.objects, queue: this.queue,
       projectile: this.projectile, particles: this.particles, falling: this.falling,
-      status: this.status, paused: this.paused, ceilRow: this.ceilRow, trajectory, showTrajectory,
+      status: this.status, paused: this.paused, ceilRow: this.ceilRow,
+      trajectory, showTrajectory, aimSegment, shake, flash,
     };
   }
 
@@ -278,6 +315,7 @@ export class SkyRescueGame {
       dropped = result.dropped;
     }
 
+    this.reconcileQueueColors();
     const progressBefore = this.rescued + this.collected + this.anchorsDestroyed;
     const objectiveBonus = this.resolveObjects([...popped, ...dropped]);
     const progressDelta = this.rescued + this.collected + this.anchorsDestroyed - progressBefore;
@@ -295,7 +333,7 @@ export class SkyRescueGame {
     this.turnsSurvived += 1;
     const breakdown = scoreTurn({ popped: popped.length, dropped: dropped.length, combo: Math.max(1, this.combo), objectiveBonus, cascadeCount: dropped.length >= 3 ? 1 : 0 });
     this.score += breakdown.total;
-    this.spawnEffects(popped, dropped, beforeGrid);
+    this.spawnEffects(popped, dropped, beforeGrid, shot.type);
     const callout = comboCallout(popped.length, dropped.length);
     if (callout) this.callbacks.onCallout?.(callout);
 
@@ -368,14 +406,28 @@ export class SkyRescueGame {
 
   emitState() { this.callbacks.onState?.(this.getSnapshot()); }
 
-  spawnEffects(popped, dropped, beforeGrid) {
+  spawnEffects(popped, dropped, beforeGrid, special = 'normal') {
+    const feedback = impactFeedback({ popped: popped.length, dropped: dropped.length, special, boss: Boolean(this.level?.boss) });
+    if (!this.reducedMotion) {
+      this.shakePower = Math.max(this.shakePower, feedback.shake);
+      this.shakeTime = Math.max(this.shakeTime, feedback.shake ? .16 : 0);
+    }
+    this.flashStrength = Math.max(this.flashStrength, feedback.flash);
+    this.flashTime = Math.max(this.flashTime, feedback.flash ? .09 : 0);
+
     for (const key of popped) {
       const [c, r] = this.B.split(key);
       const color = FX_COLORS[beforeGrid.get(key) || 1];
-      for (let i = 0; i < 4; i += 1) {
+      for (let i = 0; i < feedback.particlesPerOrb; i += 1) {
         const angle = this.rng() * Math.PI * 2;
-        const speed = 18 + this.rng() * 35;
-        this.particles.push({ x: this.B.colX(c, r), y: this.B.rowY(r), vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: .45, maxLife: .45, color });
+        const speed = 20 + this.rng() * (dropped.length >= 6 ? 58 : 42);
+        const life = .38 + this.rng() * .22;
+        this.particles.push({
+          x: this.B.colX(c, r), y: this.B.rowY(r),
+          vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+          life, maxLife: life, color,
+          size: 1.5 + this.rng() * 2.2,
+        });
       }
     }
     for (const key of dropped) {
@@ -385,6 +437,10 @@ export class SkyRescueGame {
   }
 
   updateEffects(dt) {
+    this.shakeTime = Math.max(0, this.shakeTime - dt);
+    if (!this.shakeTime) this.shakePower = 0;
+    this.flashTime = Math.max(0, this.flashTime - dt);
+    if (!this.flashTime) this.flashStrength = 0;
     for (const p of this.particles) { p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 80 * dt; }
     this.particles = this.particles.filter((p) => p.life > 0);
     for (const item of this.falling) { item.vy += 130 * dt; item.y += item.vy * dt; item.rot += item.spin * dt; }
