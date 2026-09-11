@@ -1,0 +1,33 @@
+name: Verify Balloon
+
+on:
+  push:
+    branches:
+      - main
+      - feat/sky-rescue-v1
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Legacy core tests
+        run: node balloon.test.js
+      - name: Sky Rescue tests
+        run: node sky-rescue.test.mjs
+      - name: JavaScript syntax checks
+        run: |
+          node --check balloon.js
+          node --check src/sky-rescue-core.mjs
+          node --check src/levels.mjs
+          node --check src/save.mjs
+          node --check src/game-physics.mjs
+          node --check src/game-renderer.mjs
+          node --check src/game.mjs
+          node --check src/campaign-ui.mjs
+          node --check src/app.mjs
