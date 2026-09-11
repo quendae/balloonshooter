@@ -59,6 +59,10 @@ export class SkyAudio {
   collect() { this.chord([720, 910], .04, .12, { type: 'sine', volume: .045 }); }
   anchor() { this.tone(180, .16, { type: 'triangle', to: 110, volume: .075 }); }
   ceiling() { this.tone(115, .24, { type: 'sawtooth', to: 72, volume: .035 }); }
+  lightning() {
+    this.tone(92, .24, { type: 'sawtooth', to: 48, volume: .075 });
+    globalThis.setTimeout(() => this.chord([760, 540, 360], .018, .09, { type: 'square', volume: .022 }), 28);
+  }
   boss() { this.chord([170, 230, 310], .055, .18, { type: 'triangle', volume: .055 }); }
   win() { this.chord([440, 554, 659, 880], .07, .2, { type: 'sine', volume: .045 }); }
   loss() { this.chord([330, 277, 220], .08, .18, { type: 'triangle', volume: .04 }); }
