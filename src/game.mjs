@@ -22,6 +22,7 @@ import {
   trajectoryPoints,
   velocityFromAngle,
 } from './game-physics.mjs';
+import { windForResolvedShot } from './storm-core.mjs';
 import { GameRenderer } from './game-renderer.mjs';
 import { drawWindCorridors } from './wind-renderer.mjs';
 
@@ -93,7 +94,7 @@ export class SkyRescueGame {
     this.specialDeck = [...(level.specials || [])];
     this.specialCursor = 0;
     this.aimAngle = -Math.PI / 2;
-    this.currentWind = level.wind ? { ...level.wind } : null;
+    this.currentWind = (level.wind || level.windSequence) ? windForResolvedShot(level, 0) : null;
     this.shakeTime = 0;
     this.shakePower = 0;
     this.flashTime = 0;
@@ -352,6 +353,9 @@ export class SkyRescueGame {
 
     this.shotsUsed += 1;
     this.turnsSurvived += 1;
+    if (this.level.wind || this.level.windSequence) {
+      this.currentWind = windForResolvedShot(this.level, this.shotsUsed);
+    }
     const breakdown = scoreTurn({ popped: popped.length, dropped: dropped.length, combo: Math.max(1, this.combo), objectiveBonus, cascadeCount: dropped.length >= 3 ? 1 : 0 });
     this.score += breakdown.total;
     this.spawnEffects(popped, dropped, beforeGrid, shot.type);
