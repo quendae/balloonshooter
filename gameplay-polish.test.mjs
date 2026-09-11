@@ -33,13 +33,13 @@ assert.ok(small.shake > 0 && small.shake < avalanche.shake, 'avalanches should s
 assert.ok(bomb.flash >= small.flash, 'bomb feedback should be at least as strong as a normal pop');
 assert.ok(avalanche.particlesPerOrb > small.particlesPerOrb, 'large cascades should emit more particles');
 
-assert.equal(LEVELS.length, 15, 'campaign should still ship 15 levels');
+assert.equal(LEVELS.length, 20, 'campaign should ship 20 levels after Storm Peaks');
 assert.ok(LEVELS.every((level) => level.atmosphere?.timeOfDay && level.atmosphere?.weather), 'every level needs explicit time-of-day and weather');
 const times = new Set(LEVELS.map((level) => level.atmosphere.timeOfDay));
 const weather = new Set(LEVELS.map((level) => level.atmosphere.weather));
 assert.ok(times.has('morning') && times.has('day') && times.has('sunset') && times.has('night'), 'campaign should visibly travel through the day');
 assert.ok(weather.size >= 5, 'campaign should contain several distinct weather moods');
-assert.equal(LEVELS.at(-1).atmosphere.timeOfDay, 'night', 'storm boss should happen at night');
-assert.equal(LEVELS.at(-1).atmosphere.weather, 'storm', 'storm boss should use storm weather');
+assert.equal(LEVELS.at(-1).atmosphere.timeOfDay, 'night', 'storm finale should happen at night');
+assert.equal(LEVELS.at(-1).atmosphere.weather, 'storm', 'storm finale should use storm weather');
 
 console.log('OK: gameplay polish contracts passed');
