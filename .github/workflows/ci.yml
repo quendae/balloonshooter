@@ -31,6 +31,8 @@ jobs:
         run: node orb-pass.test.mjs
       - name: In-playfield orb rack tests
         run: node orb-rack.test.mjs
+      - name: Gameplay polish tests
+        run: node gameplay-polish.test.mjs
       - name: Authored level integrity tests
         run: node level-integrity.test.mjs
       - name: JavaScript syntax checks
