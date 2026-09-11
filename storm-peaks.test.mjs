@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import {
   SHOT_SPEED,
   shortTrajectoryPreview,
@@ -6,8 +7,14 @@ import {
   trajectoryPoints,
   velocityFromAngle,
 } from './src/game-physics.mjs';
-import { windForResolvedShot } from './src/storm-core.mjs';
+import {
+  lightningSpawnPlan,
+  shouldTriggerLightning,
+  windForResolvedShot,
+} from './src/storm-core.mjs';
 
+const require = createRequire(import.meta.url);
+const B = require('./balloon.js');
 const bounds = { minX: 12, maxX: 228 };
 
 {
@@ -79,4 +86,39 @@ const bounds = { minX: 12, maxX: 228 };
   assert.notEqual(live.vx, wrong.vx, 'launched projectile must remain bound to its frozen wind');
 }
 
-console.log('✓ Storm Peaks Tasks 1-2: wind physics, limited aim, and frozen sequences');
+{
+  const storm = { firstStrikeAfterShots: 4, intervalShots: 3, spawnCount: [2, 3] };
+  assert.equal(shouldTriggerLightning(storm, 3, 0), false);
+  assert.equal(shouldTriggerLightning(storm, 4, 0), true);
+  assert.equal(shouldTriggerLightning(storm, 5, 1), false);
+  assert.equal(shouldTriggerLightning(storm, 7, 1), true);
+}
+
+{
+  const grid = new Map([
+    [B.key(3, 0), 1], [B.key(4, 0), 3], [B.key(5, 0), 1],
+    [B.key(3, 1), 3], [B.key(4, 1), 1],
+    [B.key(4, 2), 3],
+  ]);
+  const plan = lightningSpawnPlan({
+    grid,
+    objects: new Map(),
+    B,
+    palette: [1, 3],
+    rng: () => 0.25,
+    spawnCount: [2, 3],
+    failureY: B.LAUNCH_Y - 17,
+  });
+  assert(plan.strikeKey && grid.has(plan.strikeKey), 'lightning should strike an occupied carrier cell');
+  assert(plan.additions.length >= 2 && plan.additions.length <= 3, 'lightning should add the configured number of orbs');
+  const grown = new Map(grid);
+  for (const item of plan.additions) {
+    assert(B.inGrid(item.c, item.r), `spawn ${item.c},${item.r} must fit the board`);
+    assert(!grid.has(B.key(item.c, item.r)), 'lightning must not overwrite existing orbs');
+    assert([1, 3].includes(item.color), 'lightning color must come from active palette');
+    grown.set(B.key(item.c, item.r), item.color);
+  }
+  assert.equal(B.topConnected(grown, 0).size, grown.size, 'lightning additions must stay connected to the ceiling structure');
+}
+
+console.log('✓ Storm Peaks Tasks 1-3: wind and deterministic lightning contracts');
