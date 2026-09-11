@@ -22,7 +22,11 @@ import {
   trajectoryPoints,
   velocityFromAngle,
 } from './game-physics.mjs';
-import { windForResolvedShot } from './storm-core.mjs';
+import {
+  lightningSpawnPlan,
+  shouldTriggerLightning,
+  windForResolvedShot,
+} from './storm-core.mjs';
 import { GameRenderer } from './game-renderer.mjs';
 import { drawWindCorridors } from './wind-renderer.mjs';
 
@@ -95,6 +99,9 @@ export class SkyRescueGame {
     this.specialCursor = 0;
     this.aimAngle = -Math.PI / 2;
     this.currentWind = (level.wind || level.windSequence) ? windForResolvedShot(level, 0) : null;
+    this.lightningStrikes = 0;
+    this.lightningFx = null;
+    this.stormInterval = level.storm ? Math.max(1, Number(level.storm.intervalShots) || 1) : null;
     this.shakeTime = 0;
     this.shakePower = 0;
     this.flashTime = 0;
@@ -158,6 +165,7 @@ export class SkyRescueGame {
       boss: Boolean(this.level.boss),
       bossPhase: this.anchorsDestroyed,
       bossPhases: this.level.objective.type === 'anchors' ? this.level.objective.amount : 0,
+      lightningStrikes: this.lightningStrikes,
     };
   }
 
@@ -289,6 +297,7 @@ export class SkyRescueGame {
       projectile: this.projectile, particles: this.particles, falling: this.falling,
       status: this.status, paused: this.paused, ceilRow: this.ceilRow,
       trajectory, showTrajectory, aimSegment, currentWind: this.currentWind,
+      lightningFx: this.lightningFx,
       shake, flash,
     };
   }
@@ -369,12 +378,75 @@ export class SkyRescueGame {
     }
 
     if (evaluateObjective(this.level.objective, this.objectiveState()).complete) return this.complete();
+    this.maybeStrikeLightning();
     if (this.shotsUntilDrop <= 0) this.shiftCeiling();
     if (this.status !== 'playing') return;
     if (this.level.maxShots - this.shotsUsed <= 0) return this.fail('Skończyły się strzały.');
     const lowest = this.B.lowestRow(this.grid);
     if (lowest >= 0 && this.B.rowY(lowest) + this.B.RAD >= this.B.LAUNCH_Y - 17) return this.fail('Kulki zeszły zbyt nisko.');
     this.emitState();
+  }
+
+  runtimeStorm() {
+    if (!this.level?.storm) return null;
+    return {
+      ...this.level.storm,
+      intervalShots: this.stormInterval ?? this.level.storm.intervalShots,
+    };
+  }
+
+  maybeStrikeLightning() {
+    const storm = this.runtimeStorm();
+    if (!shouldTriggerLightning(storm, this.shotsUsed, this.lightningStrikes)) return null;
+
+    const palette = activeGridColors(this.grid);
+    const plan = lightningSpawnPlan({
+      grid: this.grid,
+      objects: this.objects,
+      B: this.B,
+      palette,
+      rng: this.rng,
+      spawnCount: storm.spawnCount,
+      failureY: this.B.LAUNCH_Y - 17,
+    });
+    this.lightningStrikes += 1;
+    if (!plan.strikeKey || !plan.additions.length) return plan;
+
+    for (const item of plan.additions) this.B.setBalloon(this.grid, item.c, item.r, item.color);
+    const [strikeC, strikeR] = this.B.split(plan.strikeKey);
+    this.lightningFx = {
+      key: plan.strikeKey,
+      x: this.B.colX(strikeC, strikeR),
+      y: this.B.rowY(strikeR),
+      life: .32,
+      maxLife: .32,
+    };
+    if (!this.reducedMotion) {
+      this.shakePower = Math.max(this.shakePower, 6);
+      this.shakeTime = Math.max(this.shakeTime, .26);
+    }
+    this.flashStrength = Math.max(this.flashStrength, .34);
+    this.flashTime = Math.max(this.flashTime, .16);
+
+    for (let i = 0; i < 14; i += 1) {
+      const angle = this.rng() * Math.PI * 2;
+      const speed = 32 + this.rng() * 62;
+      const life = .28 + this.rng() * .2;
+      this.particles.push({
+        x: this.lightningFx.x,
+        y: this.lightningFx.y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life,
+        maxLife: life,
+        color: i % 3 === 0 ? '#fff8c8' : '#d6ecff',
+        size: 1.5 + this.rng() * 2,
+      });
+    }
+
+    this.reconcileQueueColors();
+    this.callbacks.onLightning?.({ ...plan, strike: this.lightningStrikes });
+    return plan;
   }
 
   dropDisconnected() {
@@ -398,7 +470,7 @@ export class SkyRescueGame {
   }
 
   shiftCeiling() {
-    if (this.ceilRow >= this.B.MAXROW - 1) return this.fail('Sufit zepchnął planszę poza bezpieczną strefę.');
+    if (this.ceilRow >= this.B.MAXROW - 1) return this.fail('Sufit zepchnął planszę poza bezpieczny strefę.');
     this.B.shiftDown(this.grid);
     this.ceilRow += 1;
     const moved = new Map();
@@ -466,6 +538,10 @@ export class SkyRescueGame {
     if (!this.shakeTime) this.shakePower = 0;
     this.flashTime = Math.max(0, this.flashTime - dt);
     if (!this.flashTime) this.flashStrength = 0;
+    if (this.lightningFx) {
+      this.lightningFx.life = Math.max(0, this.lightningFx.life - dt);
+      if (!this.lightningFx.life) this.lightningFx = null;
+    }
     for (const p of this.particles) { p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 80 * dt; }
     this.particles = this.particles.filter((p) => p.life > 0);
     for (const item of this.falling) { item.vy += 130 * dt; item.y += item.vy * dt; item.rot += item.spin * dt; }
