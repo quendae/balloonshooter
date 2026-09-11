@@ -4,6 +4,19 @@ const RENDER_SCALE = 3;
 
 function snap(value) { return Math.round(value); }
 
+export function orbRackLayout(B, projectileActive = false) {
+  const nextY = Math.min(B.LH - 20, B.LAUNCH_Y + 10);
+  const railY = Math.min(B.LH - 8, B.LAUNCH_Y + 18);
+  return {
+    current: projectileActive ? null : { x: B.LW / 2, y: B.LAUNCH_Y, scale: 1 },
+    next: [
+      { x: B.LW / 2 + 31, y: nextY, scale: .72 },
+      { x: B.LW / 2 + 54, y: nextY, scale: .72 },
+    ],
+    railY,
+  };
+}
+
 function roundedCloud(ctx, x, y, scale = 1, alpha = 1) {
   ctx.save();
   ctx.globalAlpha = alpha;
@@ -96,8 +109,8 @@ export class GameRenderer {
       ctx.restore();
     }
 
-    if (state.projectile) this.drawShot(state.projectile, state.projectile.x, state.projectile.y, time);
-    else if (state.queue[0]) this.drawShot(state.queue[0], this.B.LW / 2, this.B.LAUNCH_Y, time);
+    this.drawOrbRack(state.queue || [], Boolean(state.projectile));
+    if (state.projectile) this.drawShot(state.projectile, state.projectile.x, state.projectile.y, 1);
 
     this.drawParticles(state.particles);
 
@@ -272,11 +285,45 @@ export class GameRenderer {
     ctx.imageSmoothingEnabled = smoothing;
   }
 
-  drawShot(shot, x, y) {
-    this.drawOrb(shot.color || 1, x, y, 1);
+  drawShot(shot, x, y, scale = 1) {
+    this.drawOrb(shot.color || 1, x, y, scale);
     if (shot.type === 'bomb' || shot.type === 'rainbow' || shot.type === 'guide') {
-      drawPixelSpecial(this.ctx, shot.type, snap(x), snap(y));
+      const ctx = this.ctx;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(scale, scale);
+      drawPixelSpecial(ctx, shot.type, 0, 0);
+      ctx.restore();
     }
+  }
+
+  drawOrbRack(queue, projectileActive) {
+    const layout = orbRackLayout(this.B, projectileActive);
+    const ctx = this.ctx;
+    const sockets = [layout.current, ...layout.next].filter(Boolean);
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(21, 47, 57, .52)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(this.B.LW / 2 - 16, layout.railY);
+    ctx.lineTo(this.B.LW / 2 + 66, layout.railY);
+    ctx.stroke();
+    for (const socket of sockets) {
+      ctx.fillStyle = 'rgba(10, 31, 38, .24)';
+      ctx.beginPath();
+      ctx.ellipse(socket.x, layout.railY - 1.5, 11 * socket.scale, 3 * socket.scale, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    if (layout.current && queue[0]) this.drawShot(queue[0], layout.current.x, layout.current.y, layout.current.scale);
+    const nextShots = projectileActive ? queue.slice(0, 2) : queue.slice(1, 3);
+    nextShots.forEach((shot, index) => {
+      const slot = layout.next[index];
+      if (slot) this.drawShot(shot, slot.x, slot.y, slot.scale);
+    });
   }
 
   drawObject(object, x, y, time) {
