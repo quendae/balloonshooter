@@ -1,8 +1,8 @@
 export const MASTERY_IDS = ['bank-shot', 'avalanche', 'perfect-aim'];
 
 export const MASTERY_BADGES = {
-  'bank-shot': { label: 'Bank Shot', description: 'Skasuj balony po odbiciu od ściany.', symbol: '↗' },
-  avalanche: { label: 'Avalanche', description: 'Zrzuć co najmniej 6 balonów jednym strzałem.', symbol: '◆' },
+  'bank-shot': { label: 'Bank Shot', description: 'Skasuj kulki po odbiciu od ściany.', symbol: '↗' },
+  avalanche: { label: 'Avalanche', description: 'Zrzuć co najmniej 6 kulek jednym strzałem.', symbol: '◆' },
   'perfect-aim': { label: 'Perfect Aim', description: 'Ukończ poziom bez pudła.', symbol: '◎' },
 };
 
@@ -57,14 +57,7 @@ export function scoreTurn({ popped = 0, dropped = 0, combo = 1, objectiveBonus =
   const multiplier = Math.min(8, 1 + Math.max(0, combo - 1) * 0.5);
   const cascadeBonus = Math.max(0, cascadeCount) * 50;
   const total = Math.round((normal + droppedScore) * multiplier) + objectiveBonus + cascadeBonus;
-  return {
-    normal,
-    dropped: droppedScore,
-    multiplier,
-    objectiveBonus,
-    cascadeBonus,
-    total,
-  };
+  return { normal, dropped: droppedScore, multiplier, objectiveBonus, cascadeBonus, total };
 }
 
 export function evaluateMasteries({ successfulBankShots = 0, largestDrop = 0, misses = 0 } = {}) {
@@ -76,10 +69,7 @@ export function evaluateMasteries({ successfulBankShots = 0, largestDrop = 0, mi
 }
 
 export function applyCampaignResult(progress = {}, levelId, stars, score, masteries = []) {
-  const next = {
-    ...progress,
-    levels: { ...(progress.levels || {}) },
-  };
+  const next = { ...progress, levels: { ...(progress.levels || {}) } };
   const previous = next.levels[levelId] || { stars: 0, score: 0, completed: false, masteries: [] };
   const masterySet = new Set([...(previous.masteries || []), ...masteries.filter((id) => MASTERY_IDS.includes(id))]);
   next.levels[levelId] = {
@@ -124,23 +114,19 @@ export function bombAffectedKeys(c, r, neighborsFn) {
 
 export function isOptionalComplete(optional, state = {}) {
   if (!optional) return false;
-  if (optional.type === 'accuracy') {
-    return (Number(state.misses) || 0) <= (Number(optional.maxMisses) || 0);
-  }
-  if (optional.type === 'shots-left') {
-    return (Number(state.shotsRemaining) || 0) >= (Number(optional.amount) || 0);
-  }
+  if (optional.type === 'accuracy') return (Number(state.misses) || 0) <= (Number(optional.maxMisses) || 0);
+  if (optional.type === 'shots-left') return (Number(state.shotsRemaining) || 0) >= (Number(optional.amount) || 0);
   return false;
 }
 
 export function objectiveLabel(objective = { type: 'clear' }) {
   const amount = objective.amount || 1;
   switch (objective.type) {
-    case 'rescue': return amount === 1 ? 'Uwolnij przyjaciela' : `Uwolnij ${amount} przyjaciół`;
-    case 'collect': return `Zbierz ${amount} gwiazd`;
-    case 'anchors': return `Zniszcz ${amount} kotwice`;
-    case 'survive': return `Przetrwaj ${amount} tur`;
-    default: return 'Oczyść niebo';
+    case 'rescue': return amount === 1 ? 'Uwolnij 1' : `Uwolnij ${amount}`;
+    case 'collect': return `Zbierz ${amount}`;
+    case 'anchors': return `Kotwice ${amount}`;
+    case 'survive': return `Przetrwaj ${amount}`;
+    default: return 'Oczyść planszę';
   }
 }
 
