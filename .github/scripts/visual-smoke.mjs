@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import { chromium } from 'playwright';
 
 const BASE = 'http://127.0.0.1:4173/index.html';
+const STORAGE_KEY = 'balloon-sky-rescue-v1';
 await fs.mkdir('artifacts', { recursive: true });
 
 function assert(condition, message) {
@@ -25,6 +26,14 @@ async function verifyPage(browser, name, viewport) {
   const mapOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   assert(mapOverflow <= 1, `${name}: map has ${mapOverflow}px horizontal overflow`);
   await page.screenshot({ path: `artifacts/${name}-map.png`, fullPage: true });
+
+  const sound = page.locator('#soundButton');
+  assert(await sound.getAttribute('aria-pressed') === 'true', `${name}: sound should default to enabled`);
+  await sound.click();
+  assert(await sound.getAttribute('aria-pressed') === 'false', `${name}: sound toggle should disable audio`);
+  await page.reload({ waitUntil: 'networkidle' });
+  assert(await page.locator('#soundButton').getAttribute('aria-pressed') === 'false', `${name}: sound preference should survive reload`);
+  await page.locator('#soundButton').click();
 
   await page.locator('#continueButton').click();
   await page.waitForTimeout(250);
@@ -55,11 +64,56 @@ async function verifyPage(browser, name, viewport) {
   await page.close();
 }
 
+function completedProgress(count) {
+  const levels = {};
+  const ids = [
+    'meadow-01', 'meadow-02', 'meadow-03', 'meadow-04', 'meadow-05',
+    'clouds-01', 'clouds-02', 'clouds-03', 'clouds-04', 'clouds-05',
+    'forest-01', 'forest-02', 'forest-03', 'forest-04', 'forest-05',
+  ];
+  ids.slice(0, count).forEach((id) => {
+    levels[id] = { stars: 1, score: 100, completed: true, masteries: [] };
+  });
+  return { version: 1, levels, settings: { sound: false } };
+}
+
+async function verifyWorldArt(browser) {
+  const page = await browser.newPage({ viewport: { width: 1100, height: 860 } });
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(`console: ${message.text()}`);
+  });
+
+  await page.addInitScript(({ key, value }) => localStorage.setItem(key, JSON.stringify(value)), {
+    key: STORAGE_KEY,
+    value: completedProgress(14),
+  });
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+
+  await page.locator('.level-node').nth(5).click();
+  await page.waitForTimeout(250);
+  assert((await page.locator('#gameWorldLabel').textContent())?.includes('Wyspy Chmur'), 'world art: level 6 should open cloud world');
+  await page.screenshot({ path: 'artifacts/desktop-clouds-game.png', fullPage: true });
+
+  await page.locator('#backButton').click();
+  await page.locator('#pauseMapButton').click();
+  await page.locator('.level-node').nth(14).click();
+  await page.waitForTimeout(250);
+  assert((await page.locator('#gameWorldLabel').textContent())?.includes('Las Wiatru'), 'world art: level 15 should open forest world');
+  assert(!(await page.locator('#bossMeter').isHidden()), 'world art: level 15 should expose boss meter');
+  await page.screenshot({ path: 'artifacts/desktop-boss-game.png', fullPage: true });
+
+  assert(errors.length === 0, `world art browser errors:\n${errors.join('\n')}`);
+  await page.close();
+}
+
 const browser = await chromium.launch({ headless: true });
 try {
   await verifyPage(browser, 'desktop', { width: 1440, height: 1000 });
   await verifyPage(browser, 'mobile', { width: 390, height: 844 });
-  console.log('OK: desktop and mobile browser smoke passed');
+  await verifyWorldArt(browser);
+  console.log('OK: desktop/mobile smoke, audio persistence and all world art passed');
 } finally {
   await browser.close();
 }
