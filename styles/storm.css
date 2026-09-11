@@ -13,9 +13,19 @@
   opacity: .3;
 }
 
-.world-section[data-world="storm"] .world-heading p,
-.world-section[data-world="storm"] .level-name {
+.world-section[data-world="storm"] .world-heading p {
   color: #294251;
+}
+
+.world-section[data-world="storm"] .level-name {
+  color: #f4f9fb;
+  text-shadow: 1px 1px 0 rgba(21, 38, 52, .72);
+}
+
+.world-section[data-world="storm"] .mastery-mark {
+  border-color: #aebdc6;
+  background: #6b7d89;
+  color: #dce7ec;
 }
 
 .world-icon-storm {
