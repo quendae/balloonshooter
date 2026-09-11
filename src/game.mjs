@@ -274,7 +274,9 @@ export class SkyRescueGame {
       wind,
       maxDistance: 40,
     }) : [];
-    const aimSegment = shortAim.length ? { points: shortAim } : null;
+    const aimSegment = shortAim.length
+      ? { start: shortAim[0], end: shortAim.at(-1), points: shortAim }
+      : null;
     const shake = !this.reducedMotion && this.shakeTime > 0
       ? this.shakePower * Math.min(1, this.shakeTime / .12)
       : 0;
