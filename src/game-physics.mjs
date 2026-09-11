@@ -1,3 +1,9 @@
+export const SHOT_SPEED = 460;
+
+export function shouldShowTrajectory(shot) {
+  return shot?.type === 'guide';
+}
+
 export function clampAimAngle(angle) {
   return Math.max(-Math.PI + 0.18, Math.min(-0.18, angle));
 }
