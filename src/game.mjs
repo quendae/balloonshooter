@@ -2,6 +2,7 @@ import {
   activeGridColors,
   bombAffectedKeys,
   calculateStars,
+  campaignTerminalDecision,
   chooseRainbowColor,
   comboCallout,
   createSeededRng,
@@ -395,7 +396,7 @@ export class SkyRescueGame {
       this.callbacks.onBossPhase?.({ current: this.anchorsDestroyed, total: this.level.objective.amount });
     }
 
-    if (evaluateObjective(this.level.objective, this.objectiveState()).complete) return this.complete();
+    if (campaignTerminalDecision(this.level.objective, this.objectiveState()).complete) return this.complete();
     this.maybeStrikeLightning();
     if (this.shotsUntilDrop <= 0) this.shiftCeiling();
     if (this.status !== 'playing') return;
@@ -499,6 +500,7 @@ export class SkyRescueGame {
     this.objects = moved;
     this.shotsUntilDrop = this.currentDropLimit;
     this.callbacks.onCeilingDrop?.();
+    if (campaignTerminalDecision(this.level.objective, this.objectiveState()).complete) this.complete();
   }
 
   complete() {
