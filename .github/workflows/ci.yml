@@ -32,6 +32,8 @@ jobs:
         run: node endurance-geometry.test.mjs
       - name: Shared shot resolver tests
         run: node shot-resolution.test.mjs
+      - name: Endurance renderer tests
+        run: node endurance-renderer.test.mjs
       - name: Wind corridor tests
         run: node wind.test.mjs
       - name: Pixel art contract tests
@@ -58,6 +60,8 @@ jobs:
           node --check src/sky-rescue-core.mjs
           node --check src/endurance-core.mjs
           node --check src/endurance-geometry.mjs
+          node --check src/shot-resolution.mjs
+          node --check src/endurance-renderer.mjs
           node --check src/levels.mjs
           node --check src/save.mjs
           node --check src/game-physics.mjs
