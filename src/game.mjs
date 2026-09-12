@@ -1,9 +1,7 @@
 import {
   activeGridColors,
-  bombAffectedKeys,
   calculateStars,
   campaignTerminalDecision,
-  chooseRainbowColor,
   comboCallout,
   createSeededRng,
   evaluateObjective,
@@ -29,6 +27,7 @@ import {
   shouldTriggerLightning,
   windForResolvedShot,
 } from './storm-core.mjs';
+import { resolveShotOnGrid } from './shot-resolution.mjs';
 import { GameRenderer } from './game-renderer.mjs';
 import { drawGlobalWind } from './wind-renderer.mjs';
 
@@ -344,23 +343,15 @@ export class SkyRescueGame {
     if (!snap) return this.fail('Nie ma już miejsca na bezpieczny strzał.');
     const beforeGrid = new Map(this.grid);
     const [c, r] = snap;
-    let popped = [];
-    let dropped = [];
-
-    if (shot.type === 'bomb') {
-      this.B.setBalloon(this.grid, c, r, shot.color || this.pickColor());
-      popped = bombAffectedKeys(c, r, this.B.neighbors).filter((key) => this.grid.has(key));
-      popped.forEach((key) => this.grid.delete(key));
-      dropped = this.dropDisconnected();
-    } else {
-      const color = shot.type === 'rainbow'
-        ? chooseRainbowColor(this.grid, c, r, this.B.neighbors) || this.pickColor()
-        : shot.color;
-      this.B.setBalloon(this.grid, c, r, color);
-      const result = this.B.settle(this.grid, c, r, this.ceilRow);
-      popped = result.popped;
-      dropped = result.dropped;
-    }
+    const { popped, dropped } = resolveShotOnGrid({
+      grid: this.grid,
+      shot,
+      c,
+      r,
+      geometry: this.B,
+      pickColor: () => this.pickColor(),
+      ceilRow: this.ceilRow,
+    });
 
     this.reconcileQueueColors();
     const progressBefore = this.rescued + this.collected + this.anchorsDestroyed;
