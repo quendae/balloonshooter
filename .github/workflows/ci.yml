@@ -26,6 +26,8 @@ jobs:
         run: node sky-rescue.test.mjs
       - name: Campaign empty-board regression
         run: node campaign-empty-board.test.mjs
+      - name: Endurance core tests
+        run: node endurance-core.test.mjs
       - name: Wind corridor tests
         run: node wind.test.mjs
       - name: Pixel art contract tests
