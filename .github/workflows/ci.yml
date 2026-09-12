@@ -1,0 +1,89 @@
+name: Verify Balloon
+
+on:
+  push:
+    branches:
+      - main
+      - feat/sky-rescue-v1
+      - feat/sky-rescue-v1-wind
+      - feat/sky-rescue-v1-pixel
+      - feat/integrated-orb-pass
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Legacy core tests
+        run: node balloon.test.js
+      - name: Sky Rescue tests
+        run: node sky-rescue.test.mjs
+      - name: Wind corridor tests
+        run: node wind.test.mjs
+      - name: Pixel art contract tests
+        run: node pixel-art.test.mjs
+      - name: Orb gameplay pass tests
+        run: node orb-pass.test.mjs
+      - name: In-playfield orb rack tests
+        run: node orb-rack.test.mjs
+      - name: Gameplay polish tests
+        run: node gameplay-polish.test.mjs
+      - name: Storm Peaks tests
+        run: node storm-peaks.test.mjs
+      - name: Storm Peaks content tests
+        run: node storm-content.test.mjs
+      - name: Storm Peaks runtime tests
+        run: node storm-runtime.test.mjs
+      - name: Storm feedback behavior tests
+        run: node storm-feedback.test.mjs
+      - name: Authored level integrity tests
+        run: node level-integrity.test.mjs
+      - name: JavaScript syntax checks
+        run: |
+          node --check balloon.js
+          node --check src/sky-rescue-core.mjs
+          node --check src/levels.mjs
+          node --check src/save.mjs
+          node --check src/game-physics.mjs
+          node --check src/storm-core.mjs
+          node --check src/storm-feedback.mjs
+          node --check src/pixel-art.mjs
+          node --check src/game-renderer.mjs
+          node --check src/wind-renderer.mjs
+          node --check src/game.mjs
+          node --check src/campaign-ui.mjs
+          node --check src/audio.mjs
+          node --check src/app.mjs
+
+  browser-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Playwright
+        run: |
+          npm install --no-save --package-lock=false playwright@latest
+          npx playwright install --with-deps chromium
+      - name: Start static server
+        run: |
+          python3 -m http.server 4173 > /tmp/balloon-http.log 2>&1 &
+          echo $! > /tmp/balloon-http.pid
+      - name: Browser smoke
+        run: node .github/scripts/visual-smoke.mjs
+      - name: In-playfield queue smoke
+        run: node .github/scripts/queue-smoke.mjs
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sky-rescue-screenshots
+          path: artifacts/*.png
+          if-no-files-found: warn

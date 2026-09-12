@@ -1,0 +1,212 @@
+:root {
+  color-scheme: light;
+  --sky-deep: #3178b8;
+  --sky: #8fd4ff;
+  --sky-light: #d9f3ff;
+  --cloud: #f8fcff;
+  --ink: #17324d;
+  --ink-soft: #55718a;
+  --sun: #ffd36a;
+  --leaf: #4b9c6a;
+  --coral: #f47c6c;
+  --storm: #334b72;
+  --line: rgba(23, 50, 77, .16);
+  --shadow: 0 18px 50px rgba(37, 91, 132, .18);
+  --radius-sm: 10px;
+  --radius-md: 18px;
+  --radius-lg: 28px;
+  --font-display: "Trebuchet MS", "Avenir Next", system-ui, sans-serif;
+  --font-ui: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html { min-width: 320px; background: var(--sky); }
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  background:
+    radial-gradient(circle at 82% 8%, rgba(255, 229, 145, .82) 0 5%, rgba(255, 229, 145, 0) 18%),
+    linear-gradient(180deg, #7dccff 0%, #b8e9ff 46%, #e9f9ff 100%);
+  overflow-x: hidden;
+}
+
+button, a { font: inherit; }
+button { color: inherit; }
+button, a[href] { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, a:focus-visible, canvas:focus-visible {
+  outline: 3px solid #123f67;
+  outline-offset: 3px;
+}
+
+[hidden] { display: none !important; }
+
+.sky-decor {
+  position: fixed;
+  z-index: -1;
+  pointer-events: none;
+  width: 280px;
+  height: 96px;
+  opacity: .36;
+  filter: blur(.2px);
+}
+.sky-decor::before,
+.sky-decor::after {
+  content: "";
+  position: absolute;
+  background: #fff;
+  border-radius: 999px;
+}
+.sky-decor::before { inset: 35px 0 0; }
+.sky-decor::after { width: 150px; height: 120px; left: 62px; top: 0; }
+.sky-decor-a { top: 14vh; left: -90px; }
+.sky-decor-b { top: 55vh; right: -120px; transform: scale(.75); }
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 72px;
+  padding: 12px clamp(18px, 4vw, 56px);
+  background: rgba(248, 252, 255, .94);
+  border-bottom: 1px solid rgba(23, 50, 77, .12);
+  box-shadow: 0 6px 24px rgba(53, 111, 153, .08);
+  backdrop-filter: blur(10px);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 52% 48% 50% 50%;
+  color: #fff;
+  font: 800 22px/1 var(--font-display);
+  background: var(--coral);
+  box-shadow: inset -4px -6px 0 rgba(155, 46, 54, .12), 0 5px 0 rgba(23, 50, 77, .08);
+}
+.brand strong {
+  display: block;
+  font: 800 19px/1 var(--font-display);
+  letter-spacing: -.03em;
+}
+.brand small {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.header-actions { display: flex; align-items: center; gap: 10px; }
+.star-bank {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-height: 42px;
+  padding: 10px 13px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.star-bank > span:first-child { color: #e4a814; }
+.star-bank-max { color: var(--ink-soft); font-size: 12px; }
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 13px;
+  border: 1px solid transparent;
+  text-decoration: none;
+  font-weight: 750;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+}
+.button:hover { transform: translateY(-1px); }
+.button:active { transform: translateY(1px); }
+.button-primary {
+  color: #fff;
+  background: var(--ink);
+  box-shadow: 0 7px 0 rgba(7, 33, 55, .12);
+}
+.button-primary:hover { background: #244d70; }
+.button-secondary { background: var(--sun); border-color: rgba(125, 87, 8, .12); }
+.button-ghost { color: var(--ink); background: rgba(255,255,255,.6); border-color: var(--line); }
+.button-large { min-height: 52px; padding-inline: 22px; border-radius: 16px; }
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255,255,255,.88);
+  font-weight: 850;
+  cursor: pointer;
+}
+.icon-button:hover { background: #fff; }
+
+.app-main { width: min(1180px, calc(100% - 28px)); margin: 0 auto; padding: 34px 0 70px; }
+.screen { min-height: calc(100vh - 140px); }
+
+.game-dialog {
+  width: min(520px, calc(100% - 32px));
+  padding: 30px;
+  border: 1px solid rgba(23, 50, 77, .14);
+  border-radius: 26px;
+  color: var(--ink);
+  background: #fff;
+  box-shadow: 0 30px 80px rgba(18, 61, 97, .3);
+  text-align: center;
+}
+.game-dialog::backdrop { background: rgba(27, 62, 90, .46); backdrop-filter: blur(5px); }
+.dialog-kicker {
+  margin: 0 0 8px;
+  color: var(--sky-deep);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.game-dialog h2 { margin: 0; font: 800 clamp(28px, 5vw, 42px)/1 var(--font-display); letter-spacing: -.04em; }
+.game-dialog p { color: var(--ink-soft); line-height: 1.55; }
+.dialog-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+.dialog-art { font-size: 46px; line-height: 1; color: var(--sky-deep); }
+
+@media (max-width: 680px) {
+  .app-header { min-height: 64px; padding: 10px 14px; }
+  .brand-mark { width: 38px; height: 38px; }
+  .brand strong { font-size: 17px; }
+  .brand small { display: none; }
+  .header-actions { gap: 6px; }
+  .header-actions .button { min-height: 38px; padding-inline: 11px; font-size: 13px; }
+  .star-bank { min-height: 38px; padding: 8px 9px; }
+  .app-main { width: min(100% - 20px, 1180px); padding-top: 22px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+}

@@ -1,0 +1,9 @@
+@media (max-width: 720px) {
+  /* Decorative cloud tabs sit outside the canvas frame on desktop. On narrow
+     screens they create real document overflow, so the mobile composition
+     drops them instead of hiding a horizontal scrollbar. */
+  .playfield-frame::before,
+  .playfield-frame::after {
+    display: none;
+  }
+}

@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#5fa7d7">
+  <title>Balloon: Sky Rescue</title>
+  <meta name="description" content="Arcade puzzle shooter z ręcznie projektowaną kampanią, ratowaniem postaci i kaskadami kolorowych kulek.">
+  <link rel="stylesheet" href="styles/base.css">
+  <link rel="stylesheet" href="styles/map.css">
+  <link rel="stylesheet" href="styles/game.css">
+  <link rel="stylesheet" href="styles/mobile.css">
+  <link rel="stylesheet" href="styles/polish.css">
+  <link rel="stylesheet" href="styles/pixel.css">
+  <link rel="stylesheet" href="styles/hybrid.css">
+  <link rel="stylesheet" href="styles/integrated.css">
+  <link rel="stylesheet" href="styles/rack.css">
+  <link rel="stylesheet" href="styles/storm.css">
+</head>
+<body class="pixel-art">
+  <div class="sky-decor sky-decor-a" aria-hidden="true"></div>
+  <div class="sky-decor sky-decor-b" aria-hidden="true"></div>
+
+  <header class="app-header">
+    <button class="brand" id="homeButton" type="button" aria-label="Wróć do mapy kampanii">
+      <span class="brand-mark" aria-hidden="true">B</span>
+      <span><strong>Balloon</strong><small>Sky Rescue</small></span>
+    </button>
+    <div class="header-actions">
+      <div class="star-bank" id="campaignProgressBank" aria-label="Postęp kampanii">
+        <span class="progress-glyph progress-glyph-stars" aria-hidden="true">★</span><strong id="totalStars">0</strong><span class="star-bank-max">/60</span>
+        <span class="bank-divider" aria-hidden="true"></span>
+        <span class="progress-glyph progress-glyph-mastery" aria-hidden="true">◆</span><strong id="totalMasteries">0</strong><span class="star-bank-max">/60</span>
+      </div>
+      <button class="icon-button sound-button" id="soundButton" type="button" aria-label="Wyłącz dźwięki" aria-pressed="true"><span aria-hidden="true">♪</span></button>
+      <a class="button button-ghost classic-link" href="balloon.html">Tryb klasyczny</a>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <section class="screen map-screen" id="mapScreen" aria-labelledby="campaignTitle">
+      <div class="campaign-intro">
+        <div>
+          <p class="world-kicker">Sky Rescue</p>
+          <h1 id="campaignTitle">Dwadzieścia układów. Jedna dobra linia.</h1>
+          <p>Klasyczne kulki, ręcznie zbudowane plansze i kilka zasad, które zmieniają sposób celowania.</p>
+        </div>
+        <button class="button button-primary button-large" id="continueButton" type="button">Graj</button>
+      </div>
+      <div class="campaign-map" id="campaignMap" aria-label="Mapa kampanii"></div>
+    </section>
+
+    <section class="screen game-screen" id="gameScreen" hidden aria-label="Rozgrywka">
+      <div class="game-layout">
+        <div class="playfield-frame">
+          <div class="playfield-hud playfield-hud-top">
+            <button class="icon-button playfield-nav" id="backButton" type="button" aria-label="Wróć do mapy">←</button>
+            <div class="playfield-objective" aria-live="polite">
+              <strong id="objectiveLabel">Oczyść planszę</strong>
+              <span class="objective-progress"><span id="objectiveCurrent">0</span><span aria-hidden="true">/</span><span id="objectiveTarget">1</span></span>
+            </div>
+            <div class="game-title-block">
+              <span id="gameWorldLabel">Świat</span>
+              <strong id="gameLevelLabel">Poziom</strong>
+            </div>
+            <div class="score-compact">
+              <strong id="scoreValue">0</strong>
+              <span class="combo-value" id="comboValue">—</span>
+            </div>
+            <button class="icon-button playfield-nav" id="pauseButton" type="button" aria-label="Pauza">Ⅱ</button>
+          </div>
+
+          <div class="playfield-canvas-wrap">
+            <canvas id="gameCanvas" width="240" height="320" aria-label="Pole gry Sky Rescue"></canvas>
+            <div class="combo-callout" id="comboCallout" role="status" aria-live="polite"></div>
+          </div>
+
+          <div class="playfield-hud playfield-hud-bottom">
+            <div class="shot-queue-wrap">
+              <span class="hud-label">Następne</span>
+              <div class="shot-queue" id="shotQueue" aria-label="Aktualna i dwie następne kulki"></div>
+            </div>
+            <dl class="run-stats run-stats-inline">
+              <div><dt>Strzały</dt><dd id="shotsValue">0</dd></div>
+              <div><dt>Sufit</dt><dd id="dropValue">0</dd></div>
+              <div><dt>Pudła</dt><dd id="missesValue">0</dd></div>
+            </dl>
+            <div class="boss-meter" id="bossMeter" hidden>
+              <div id="bossPips" class="boss-pips" aria-label="Postęp bossa"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog class="game-dialog result-dialog" id="resultDialog" aria-labelledby="resultTitle">
+    <p class="dialog-kicker" id="resultKicker">Poziom ukończony</p>
+    <h2 id="resultTitle">Dobra seria.</h2>
+    <div class="result-stars" id="resultStars" aria-label="Zdobyte gwiazdki"></div>
+    <strong class="result-score" id="resultScore">0</strong>
+    <p id="resultDetail"></p>
+    <div class="result-masteries" id="resultMasteries" aria-label="Odznaki mastery"></div>
+    <div class="dialog-actions">
+      <button class="button button-ghost" id="resultMapButton" type="button">Mapa</button>
+      <button class="button button-secondary" id="retryButton" type="button">Powtórz</button>
+      <button class="button button-primary" id="nextButton" type="button">Dalej</button>
+    </div>
+  </dialog>
+
+  <dialog class="game-dialog pause-dialog" id="pauseDialog" aria-labelledby="pauseTitle">
+    <p class="dialog-kicker">Pauza</p>
+    <h2 id="pauseTitle">Sky Rescue</h2>
+    <div class="dialog-actions">
+      <button class="button button-ghost" id="pauseMapButton" type="button">Mapa</button>
+      <button class="button button-primary" id="resumeButton" type="button">Wróć</button>
+    </div>
+  </dialog>
+
+  <script src="balloon.js"></script>
+  <script type="module" src="src/app.mjs"></script>
+</body>
+</html>
