@@ -30,6 +30,8 @@ jobs:
         run: node endurance-core.test.mjs
       - name: Endurance geometry tests
         run: node endurance-geometry.test.mjs
+      - name: Shared shot resolver tests
+        run: node shot-resolution.test.mjs
       - name: Wind corridor tests
         run: node wind.test.mjs
       - name: Pixel art contract tests
