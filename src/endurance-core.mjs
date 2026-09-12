@@ -96,6 +96,32 @@ export function scheduledSpecialType({ round = 1, resolvedShots = 0, previousWas
   return types[index % types.length];
 }
 
+export function generateEnduranceRow({ geometry, targetRow = 0, palette = [], rng = Math.random } = {}) {
+  if (!geometry) return [];
+  const colors = palette.length ? [...palette] : [1, 2, 3, 4];
+  const row = [];
+  for (let c = 0; c < geometry.rowCols(targetRow); c += 1) {
+    let color = colors[Math.min(colors.length - 1, Math.floor(rng() * colors.length))];
+    if (c >= 2 && row[c - 1].color === color && row[c - 2].color === color) {
+      color = colors[(colors.indexOf(color) + 1) % colors.length];
+    }
+    row.push({ c, r: targetRow, color });
+  }
+  return row;
+}
+
+export function generateInitialEnduranceGrid({ geometry, palette = [], rng = Math.random, rows = ENDURANCE_CONFIG.initialRows } = {}) {
+  const grid = new Map();
+  if (!geometry) return grid;
+  const count = Math.max(0, Math.min(geometry.MAXROW + 1, Math.floor(Number(rows) || 0)));
+  for (let r = 0; r < count; r += 1) {
+    for (const cell of generateEnduranceRow({ geometry, targetRow: r, palette, rng })) {
+      grid.set(geometry.key(cell.c, cell.r), cell.color);
+    }
+  }
+  return grid;
+}
+
 export function updateEnduranceRecords(records = {}, result = {}) {
   const previous = {
     bestScore: Math.max(0, Number(records.bestScore) || 0),
