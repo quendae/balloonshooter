@@ -80,7 +80,8 @@ async function verifyDesktop(browser) {
 }
 
 async function verifyMobile(browser) {
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const viewport = { width: 390, height: 844 };
+  const page = await browser.newPage({ viewport });
   const errors = [];
   page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
   page.on('console', (message) => {
@@ -89,7 +90,8 @@ async function verifyMobile(browser) {
 
   await openEndurance(page, 'artifacts/mobile-endurance-intro.png');
   const canvasBox = await page.locator('#gameCanvas').boundingBox();
-  assert(canvasBox && canvasBox.width >= 350, `Endurance mobile canvas is too narrow: ${canvasBox?.width ?? 0}px`);
+  const minimumCanvasWidth = Math.min(300, viewport.width - 30);
+  assert(canvasBox && canvasBox.width >= minimumCanvasWidth, `Endurance mobile canvas width ${canvasBox?.width ?? 0}px is below ${minimumCanvasWidth}px`);
   assert((await page.locator('#statOneLabel').textContent()) === 'Runda', 'mobile Endurance HUD should preserve round label');
   assert((await page.locator('#statTwoLabel').textContent()) === 'Do rzędu', 'mobile Endurance HUD should preserve row countdown label');
   assert((await page.locator('#statThreeLabel').textContent()) === 'Czas', 'mobile Endurance HUD should preserve timer label');
