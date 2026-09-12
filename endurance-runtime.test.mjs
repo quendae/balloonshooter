@@ -91,4 +91,48 @@ doomed.shotsInRound = 2;
 doomed.afterResolvedEnduranceShot({ popped: 0, dropped: 0, turnScore: 0 });
 assert.equal(doomed.status, 'lost', 'row overflow should end Endurance exactly at pressure limit');
 
-console.log('✓ Endurance round runtime');
+const fastConfig = {
+  ...ENDURANCE_CONFIG,
+  expansionTimesSeconds: [1, 2, 3],
+  laterExpansionIntervalSeconds: 1,
+  adaptiveExpansionWindowSeconds: 0,
+  zoomDurationSeconds: .1,
+};
+const expanding = new EnduranceGame(fakeCanvas(), {}, { config: fastConfig });
+expanding.start('expansion-seed');
+const initialRadius = expanding.B.RAD;
+const initialGridSize = expanding.grid.size;
+expanding.elapsedMs = 1_000;
+expanding.maybeAdvanceDifficultyStage();
+assert.equal(expanding.difficultyStage, 1);
+assert(expanding.pendingExpansion, 'first timed stage should begin a spatial zoom');
+assert.equal(expanding.spatialStage, 0, 'new geometry is not authoritative before zoom finishes');
+assert.equal(expanding.renderState().transitionCells.length, initialGridSize);
+
+const shotsBefore = expanding.shotsInRound;
+expanding.shoot();
+assert.equal(expanding.projectile, null, 'firing is locked during zoom');
+assert.equal(expanding.shotsInRound, shotsBefore);
+
+expanding.setPaused(true);
+const elapsedBeforePause = expanding.elapsedMs;
+const transitionBeforePause = expanding.pendingExpansion.elapsed;
+expanding.update(.05);
+assert.equal(expanding.elapsedMs, elapsedBeforePause, 'pause freezes active run time');
+assert.equal(expanding.pendingExpansion.elapsed, transitionBeforePause, 'pause freezes zoom animation');
+expanding.setPaused(false);
+
+expanding.update(.09);
+assert.equal(expanding.spatialStage, 0);
+expanding.update(.02);
+assert.equal(expanding.spatialStage, 1);
+assert(expanding.B.RAD < initialRadius);
+assert.equal(expanding.shotsInRound, shotsBefore, 'zoom must not reset the three-shot cadence');
+assert.equal(expanding.pendingExpansion, null);
+
+const stageBefore = expanding.difficultyStage;
+expanding.elapsedMs = 99_000;
+expanding.update(.033);
+assert.equal(expanding.difficultyStage, stageBefore + 1, 'one active frame advances at most one difficulty stage');
+
+console.log('✓ Endurance round runtime and timed expansion');
