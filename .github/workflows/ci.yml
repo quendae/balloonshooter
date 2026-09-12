@@ -104,6 +104,8 @@ jobs:
         run: node .github/scripts/visual-smoke.mjs
       - name: In-playfield queue smoke
         run: node .github/scripts/queue-smoke.mjs
+      - name: Endurance browser smoke
+        run: node .github/scripts/endurance-smoke.mjs
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
