@@ -2,82 +2,92 @@
 
 ## Goal
 
-Add a score-focused **Endurance** mode alongside the existing Sky Rescue campaign, while also fixing the campaign edge case where the board can become empty without the run resolving.
+Add a score-focused **Endurance** mode alongside the existing Sky Rescue campaign and fix the campaign edge case where the board can become empty without the run resolving.
 
-The new mode should feel like a distinct survival loop rather than another authored level: the board grows over time, a fresh row arrives every three resolved shots, the logical playfield expands progressively, and the player competes for score, survival time, and round count.
+Endurance is a distinct survival loop rather than another authored level: every three resolved shots create a new row, the logical board expands over time with a smooth zoom-out, and the player competes for score, survival time, and highest round.
 
 ## Scope
 
 This design covers:
 
-- a campaign empty-board terminal-state fix;
-- a new Endurance entry point and run lifecycle;
-- one new row every three resolved shots;
-- a dynamically expanding logical hex board;
-- smooth zoom-out/re-layout as the board expands;
-- score/time/round records;
-- a progressive difficulty curve;
-- Endurance-specific HUD and result presentation;
-- automated tests for geometry, progression, scoring, failure states, persistence, and responsive UI.
+- campaign empty-board terminal-state reconciliation;
+- a new Endurance entry point and lifecycle;
+- one generated row every three resolved shots;
+- dynamically expanding hex geometry isolated from campaign geometry;
+- smooth zoom/re-layout during expansions;
+- score, time, and round records;
+- progressive/adaptive expansion timing;
+- Endurance-specific HUD and result UI;
+- automated core, geometry, runtime, persistence, and browser tests.
 
-The design does **not** add online leaderboards, currencies, booster shops, paid progression, or a new economy.
+It does not add online leaderboards, multiplayer Endurance, currencies, booster shops, monetization, or a meta-progression economy.
 
 ---
 
 ## 1. Campaign Empty-Board Fix
 
-The campaign currently resolves completion primarily through objective state. That can leave an impossible state where `grid.size === 0`, but a rescue/collect/anchor counter is still not considered complete because the final cascade removed the structure before all dependent state was synchronized.
+Campaign currently resolves completion primarily through objective state. An edge case can therefore leave `grid.size === 0` while an objective counter has not synchronized, leaving the player on an empty board with no valid move.
 
-After every board mutation that can remove or add balls, campaign mode must run one terminal-state reconciliation step.
+After every campaign board mutation that can remove or add balls, run one terminal-state reconciliation step after normal object/counter resolution.
 
 Rules:
 
-1. For a `clear` objective, `grid.size === 0` is immediate success.
-2. For rescue, collect, or anchor objectives, normal objective resolution runs first.
-3. If the board is empty after that resolution, campaign mode must not remain playable.
-4. If the requested objective is already satisfied, complete normally.
-5. If the board is empty while an objective object can no longer physically exist or be reached, treat the run as completed rather than leaving the player stuck on an empty board.
+1. `clear` objectives complete immediately when `grid.size === 0`.
+2. Rescue, collect, and anchor objects/counters resolve normally first.
+3. If the board is empty after that resolution, the campaign run must never remain `playing`.
+4. If the objective is satisfied, complete normally.
+5. If counters remain inconsistent after the final cascade, an empty board is the safety fallback and the level completes anyway. An empty campaign board is never treated as a loss.
 
-This is intentionally campaign-only behavior. Endurance uses an empty board as a reward state and continues.
+This fallback is campaign-only. Endurance treats an empty board as a reward state and continues.
 
 ---
 
 ## 2. Endurance Core Loop
 
-Endurance has no completion objective and no shot limit.
+Endurance has no completion objective and no maximum shot count.
 
-A run starts with a standard-size board comparable to the current campaign geometry. The player shoots exactly as in Sky Rescue, using the existing orb look, projectile speed, collision feel, queue, combo logic, bounce behavior, bomb/rainbow/Guide specials, and current visual-only wind treatment.
+A run starts with the current standard board dimensions and **four generated occupied rows**. Those rows use the same deterministic row-generation constraints as later rows so the starting position does not contain accidental horizontal same-color runs of 3+.
 
-### Round definition
+The player keeps the existing orb art, projectile speed, collision feel, queue, combo model, wall bounces, Bomb/Rainbow/Guide shots, visual-only wind, impact effects, and audio language.
 
-- **3 resolved shots = 1 round.**
-- After the third resolved shot, the game inserts one new full row at the top.
-- Existing balls shift down one row before the new row is inserted.
-- The shot counter for the next round resets to 0/3.
-- The run continues until a ball enters the launcher failure zone.
+Storm lightning is **not** part of Endurance in the first pass. The mode's pressure comes from rows and board growth.
 
-A shot counts when its complete board result has been resolved. Lightning telegraphs, animations, pauses, or other FX do not count as separate shots.
+### Round semantics
+
+State starts as:
+
+```js
+round: 1
+shotsInRound: 0
+```
+
+- Every resolved shot increments `shotsInRound`.
+- **3 resolved shots = one completed round.**
+- After shot 3, insert a new top row, reset `shotsInRound` to 0, and increment `round`.
+- HUD shows the currently active round, so after surviving the first inserted row it changes from Round 1 to Round 2.
+- `bestRound` stores the highest round reached, not merely the count of finished rounds.
+
+A shot counts only after its entire pop/drop result is resolved. Pauses, FX, zoom transitions, or warnings never count as shots.
 
 ### Clearing the board
 
-Clearing the entire board does **not** end Endurance.
+`grid.size === 0` never ends Endurance.
 
-Instead:
+On the transition from non-empty to empty:
 
-- award a prominent `CLEAR BONUS`;
-- preserve the current score/combo state according to the scoring rules;
-- continue the current 3-shot round cadence;
-- the next scheduled row repopulates the playfield.
-
-This prevents an excellent run from ending because the player played too well.
+- award one `CLEAR BONUS`;
+- show a prominent `CLEAR BONUS` callout;
+- keep the current three-shot cadence;
+- do not repeatedly award the bonus while the board remains empty;
+- the next scheduled row repopulates the board.
 
 ---
 
 ## 3. Dynamic Board Geometry
 
-The existing campaign engine uses fixed geometry: 10/9 columns and 10 rows. Endurance must not mutate those campaign-wide constants.
+Campaign geometry remains untouched. Existing fixed `BALLOON` constants continue to power authored campaign levels.
 
-Endurance therefore gets its own geometry descriptor, for example:
+Endurance gets a separate geometry descriptor, for example:
 
 ```js
 {
@@ -94,7 +104,7 @@ Endurance therefore gets its own geometry descriptor, for example:
 }
 ```
 
-A geometry helper must expose the same conceptual operations the game needs:
+The Endurance geometry API exposes the operations needed by runtime code:
 
 - `rowCols(r)`
 - `colX(c, r)`
@@ -105,164 +115,200 @@ A geometry helper must expose the same conceptual operations the game needs:
 - `topConnected(...)`
 - `lowestRow(...)`
 
-Campaign continues using the current `BALLOON` geometry unchanged. Endurance passes its own geometry object through runtime code that needs board dimensions.
+### Spatial expansion
 
-### Expansion stages
+Each spatial expansion adds:
 
-Each expansion stage increases the logical playfield by:
-
-- **+1 column on the left**;
-- **+1 column on the right**;
+- **1 logical column on the left**;
+- **1 logical column on the right**;
 - therefore 10/9 -> 12/11 -> 14/13 -> 16/15 ...;
-- **+2 rows of maximum vertical capacity**.
+- **2 rows of maximum vertical capacity**.
 
-Existing balls are remapped one column to the right at each stage so their visual center remains stable while the new side columns appear symmetrically.
+Existing occupied cells are remapped `c -> c + 1` once per expansion. This opens one new column on each side while preserving the centered shape and all adjacency/connectivity relationships.
 
-Example:
+Expansion itself adds **no balls** to the side columns. Later generated top rows use the full current width and naturally begin filling them.
 
-```text
-stage 0: c -> c
-stage 1: c -> c + 1
-stage 2: c -> c + 2
-```
+### Readability floor
 
-The remap happens once per expansion event. Relative structure and connectivity must remain unchanged.
+Final cell spacing is calculated from the fixed canvas size. The renderer/runtime must not shrink orb radius below **6.5 logical pixels**.
 
-### No instant side-fill
-
-Expansion creates new logical space but does **not** instantly populate the new side columns.
-
-The next generated rows use the full new width. This allows the wider board to fill naturally rather than punishing the player with a sudden mass spawn.
+If the next spatial expansion would require a radius below 6.5, spatial growth stops at the current geometry. Endurance still continues indefinitely with its three-shot row pressure and score progression; the game never becomes unreadably tiny merely to claim another zoom stage.
 
 ---
 
 ## 4. Smooth Zoom-Out and Re-layout
 
-The physical canvas remains the same size.
+The physical canvas remains unchanged.
 
-When the logical board expands, the renderer transitions from the old geometry to the new geometry over approximately **0.5-0.7 seconds**.
+A spatial expansion transitions old geometry -> new geometry over **0.6 seconds**.
 
 During the transition:
 
-- orb radius visually interpolates to the new size;
-- existing balls interpolate from old cell centers to new cell centers;
-- the launcher stays anchored near the bottom center;
-- the failure line remains visually clear;
-- aiming is temporarily locked until the transition completes;
-- the board does not accept a shot while two geometries are being interpolated.
+- orb radius interpolates from old to new;
+- occupied balls interpolate between old and remapped cell centers;
+- the launcher remains anchored at bottom center;
+- the failure line remains visible;
+- firing/aim confirmation is locked;
+- the run clock continues only if the game itself is not paused;
+- row and shot counters do not reset.
 
-The final geometry for each stage is derived from available canvas width and height rather than a hardcoded sprite scale. This keeps later stages readable on both desktop and mobile.
+After 0.6 s, the new geometry becomes authoritative and firing unlocks.
 
-The renderer should impose a practical minimum orb radius. If the theoretical next stage would make balls smaller than the readability threshold, later difficulty increases should come from faster stage timing, scoring pressure, or row density rather than shrinking indefinitely.
+Pause freezes the transition. Resume continues from the same interpolation progress.
 
 ---
 
 ## 5. New Row Generation
 
-After every third resolved shot:
+After each third resolved shot:
 
-1. move the current board one row downward;
-2. fail immediately if the move places any occupied cell into the launcher danger zone;
-3. generate a fresh full row at the current top row;
-4. generate colors from the current active Endurance palette;
-5. reconcile the upcoming shot queue against that palette;
-6. continue the next round.
+1. shift occupied cells one row downward using current Endurance geometry;
+2. check the launcher danger line;
+3. if still alive, generate a full current-width top row;
+4. reconcile upcoming queue colors;
+5. reset `shotsInRound` and advance the active round;
+6. check failure state again after the new row exists.
 
-### Spawn palette
+### Palette
 
-Endurance starts with a controlled color count rather than all possible colors immediately. The initial recommendation is 4 active colors, with a fifth color introduced only at a later difficulty stage if playtesting supports it.
+- Start with **4 active colors**.
+- Introduce a fifth active color at spatial/difficulty stage 3.
+- Never generate a shot color absent from the current Endurance palette.
+- If the board is temporarily empty, queue generation falls back to the configured current palette rather than returning color 0.
 
-### Anti-freebie generation
+### Anti-freebie constraint
 
-A fresh generated row should avoid creating a large automatic cluster before the player shoots.
+For the new row, reject/repair any horizontal same-color run of 3 or more cells created entirely within that row.
 
-The generator should reject or adjust obvious horizontal runs that would create an immediate group of 3+ same-color balls in the new row. It does not need to solve the entire board or guarantee difficulty; it only prevents accidental free clears caused purely by row generation.
+The generator does not solve the whole board and does not prevent a new row from connecting to existing same-color balls below. It only prevents a free horizontal 3+ caused solely by generation.
 
-Generation must be deterministic when supplied a seeded RNG so automated tests can verify exact behavior.
+Generation accepts a seeded RNG and must be deterministic in tests.
 
 ---
 
 ## 6. Difficulty Curve and Expansion Timing
 
-The first balancing pass uses a hybrid schedule: a predictable base timeline with small adjustments based on board pressure.
+Use a hybrid schedule: predictable base times plus a small board-pressure adjustment.
 
-Initial base expansion times:
+First-pass base elapsed-active-time thresholds:
 
 ```text
-Stage 1: ~55 s
-Stage 2: ~100 s
-Stage 3: ~140 s
-Stage 4: ~175 s
-Stage 5: ~205 s
-Later: every ~25-30 s
+Stage 1: 55 s
+Stage 2: 100 s
+Stage 3: 140 s
+Stage 4: 175 s
+Stage 5: 205 s
+Later difficulty stages: +27 s each
 ```
 
-The exact values are configuration, not embedded throughout gameplay code.
+These values live in one Endurance configuration object.
 
-### Adaptive adjustment
+### Pressure metric
 
-At each pending expansion:
+Define:
 
-- if the board is unusually empty/safe, expansion may occur up to ~8 seconds earlier;
-- if the board is already close to the failure line, expansion may be delayed up to ~8 seconds;
-- no single adaptive adjustment exceeds this window;
-- the schedule never moves backward after a stage has triggered.
+```text
+pressure = lowestOccupiedRow / (maxRows - 1)
+```
 
-This preserves a recognizable rhythm while preventing obviously unfair or trivial timing.
+For an empty board, pressure is `0`.
 
-### Expansion does not replace row pressure
+The threshold adjustment is deterministic and bounded:
 
-The 3-shot row cadence remains active at all times. Expansion only changes capacity and geometry; it does not reset the shot-round counter.
+```text
+pressure <= 0.45  -> -8 s
+pressure == 0.60  ->  0 s
+pressure >= 0.75  -> +8 s
+```
+
+Linearly interpolate between these points and clamp to `[-8 s, +8 s]`.
+
+Interpretation:
+
+- safe/empty board -> next stage arrives a little earlier;
+- dangerous board -> player gets up to 8 seconds of relief;
+- no threshold can move by more than 8 seconds;
+- once a stage triggers, it cannot be undone.
+
+If spatial growth has already hit the 6.5 px readability floor, later timed stages still advance the difficulty stage for palette/scoring/special cadence purposes but do not widen the board further.
+
+The three-shot row cadence never changes and never resets because of a timed stage.
 
 ---
 
 ## 7. Scoring
 
-Endurance reuses the current scoring model for:
+Reuse the existing turn score calculation for pops, drops, combos, cascades, and special outcomes.
 
-- popped balls;
-- dropped balls;
-- combo multiplier;
-- cascade bonus;
-- special-shot outcomes.
-
-It adds two Endurance-only layers.
+Endurance then applies an additional mode multiplier.
 
 ### Round multiplier
 
-Every 5 completed rounds, the Endurance score multiplier gains **+0.25x**.
-
-Example:
+Every five rounds, add `+0.25x`:
 
 ```text
-Rounds 1-5: 1.00x
-Rounds 6-10: 1.25x
+Rounds 1-5:   1.00x
+Rounds 6-10:  1.25x
 Rounds 11-15: 1.50x
 Rounds 16-20: 1.75x
 ...
 ```
 
-This multiplier applies to the turn's score after normal pop/drop/combo calculation. It should have a sensible cap after playtesting so extremely long runs do not overflow score presentation.
+Cap the Endurance multiplier at **3.00x**.
 
-### Round survival bonus
+The Endurance multiplier applies after normal turn-score calculation.
 
-Completing a 3-shot round grants a small flat survival bonus. It should be meaningful but remain much smaller than a strong combo/drop, so the best strategy is still to play aggressively rather than merely survive.
+### Survival bonus
+
+Completing a three-shot round grants:
+
+```text
+100 * enduranceMultiplier
+```
+
+rounded to the nearest integer.
+
+This remains much smaller than a strong later-game cascade.
 
 ### Clear bonus
 
-If the board reaches `grid.size === 0`, award a large one-time `CLEAR BONUS` for that clear event. It must not fire repeatedly while the board remains empty waiting for the next row.
+Transitioning from a non-empty board to an empty board grants:
+
+```text
+1000 * enduranceMultiplier
+```
+
+rounded to the nearest integer.
+
+The clear bonus can trigger again only after at least one ball has existed on the board since the previous clear.
 
 ---
 
-## 8. Records and Persistence
+## 8. Specials
 
-Endurance persists three local records:
+There is no Endurance economy.
+
+First-pass deterministic cadence:
+
+- no special before Round 4;
+- after Round 4, inject one special every **6 resolved shots**;
+- cycle `Guide -> Bomb -> Rainbow -> Guide ...`;
+- never insert a second special if the immediately previous queued/used shot was already special;
+- normal balls remain the dominant queue content.
+
+Exact cadence remains configuration-driven for later balancing.
+
+---
+
+## 9. Records and Persistence
+
+Persist three independent local records:
 
 - **Best Score**
 - **Best Time**
 - **Best Round**
 
-These live alongside campaign progress in the existing versioned save system, for example:
+Save shape:
 
 ```js
 endurance: {
@@ -272,200 +318,186 @@ endurance: {
 }
 ```
 
-Existing saves migrate safely by defaulting missing Endurance data to zero values.
+Existing saves migrate by defaulting the missing Endurance object to zeros.
 
-A new result only replaces each record independently when that metric is higher.
+At run end, each metric updates independently with `max(old, new)`.
 
-No cloud sync or online leaderboard is part of this scope.
-
----
-
-## 9. Specials
-
-Endurance keeps the existing special-shot types but does not add an economy.
-
-Recommended first-pass distribution:
-
-- no special before the player has completed a few rounds;
-- then inject Guide, Bomb, and Rainbow through a deterministic sparse rotation;
-- never place multiple specials back-to-back in the initial balance;
-- keep normal balls as the dominant queue content.
-
-Exact cadence should be configuration-driven so browser simulations can tune it without rewriting gameplay logic.
+Time means **active gameplay time**. Paused time and time spent with the tab suspended do not count.
 
 ---
 
 ## 10. Endurance UI Flow
 
-### Campaign screen
+### Main/campaign screen
 
-Add a prominent **Endurance** button next to the main campaign action.
+Add a prominent **Endurance** button beside the primary campaign action.
 
-Selecting it opens an Endurance intro state showing:
+Selecting it opens an integrated Endurance intro panel/dialog containing:
 
-- mode name;
-- one-line rule summary: `3 strzały = nowy rząd`;
+- `Endurance`;
+- rule summary `3 strzały = nowy rząd`;
 - Best Score;
 - Best Time;
 - Best Round;
-- `Start` button.
-
-This should remain visually integrated with the current Sky Rescue presentation rather than introducing a separate application shell.
+- `Start`;
+- `Wróć`.
 
 ### In-run HUD
 
-Reuse the existing playfield and shot queue.
+Reuse the current playfield frame, top score/combo display, canvas, and in-playfield shot queue.
 
-Replace campaign-specific run stats with:
+Replace campaign run stats with:
 
-- **Runda**
-- **Do rzędu** (`3`, `2`, `1` or an equivalent compact presentation)
-- **Czas**
+- **Runda** — active round number;
+- **Do rzędu** — `3 - shotsInRound`;
+- **Czas** — active elapsed time.
 
-Score and combo remain in the top HUD.
-
-Do not show campaign stars, objectives, mastery progress, or max-shot limits during an Endurance run.
+Do not show campaign objective progress, stars, mastery counts, max-shot limit, or boss meter in Endurance.
 
 ### Result dialog
 
-On loss, show:
+On loss show:
 
 - final score;
-- survival time;
-- highest completed round;
-- indicators for any new records;
+- active survival time;
+- highest round reached;
+- `NOWY REKORD` indicators independently for score/time/round when appropriate;
 - `Jeszcze raz`;
 - `Mapa`.
 
-There is no `Dalej` action in Endurance.
+Do not show campaign stars or `Dalej`.
 
 ---
 
-## 11. Endurance Failure Rule
+## 11. Failure Rule
 
-The run ends when the occupied board reaches the launcher danger line.
+Endurance ends only when the occupied structure reaches the launcher danger line.
 
-This check runs after any operation that can move or add balls:
+Check after every operation that can change occupied positions:
 
 - normal shot settlement;
 - disconnected drops;
-- row insertion;
-- geometry expansion/remap;
-- any future Endurance hazard that can add balls.
+- generated-row downward shift;
+- top-row generation;
+- completed geometry remap/transition;
+- any future Endurance mechanic that adds/moves balls.
 
-An expansion stage itself should not create a loss merely because coordinates are rescaled. Loss is evaluated against the new logical geometry after the transition settles.
+The zoom interpolation itself cannot cause a loss mid-animation. Evaluate against authoritative new logical geometry after the transition completes.
 
-The result reason should clearly state that the stack reached the launcher.
+Failure fires once and produces a clear result reason such as `Kulki dotarły do wyrzutni.`
+
+There is no max-shot failure in Endurance.
 
 ---
 
 ## 12. Runtime Architecture
 
-Keep Endurance separate enough that campaign behavior remains understandable.
-
-Recommended module boundaries:
+Keep Endurance isolated enough that campaign behavior remains understandable while reusing existing shot mechanics.
 
 ### `src/endurance-core.mjs`
-Pure, DOM-free logic:
 
+Pure DOM-free logic:
+
+- central `ENDURANCE_CONFIG`;
 - stage geometry calculation;
-- expansion schedule;
-- adaptive timing adjustment;
+- expansion schedule and pressure adjustment;
 - coordinate remapping;
-- 3-shot round state;
+- round progression;
 - generated-row planning;
-- Endurance multiplier/bonus helpers;
+- palette-by-stage;
+- Endurance multiplier/survival/clear bonuses;
 - record comparison/update helpers.
 
+### `src/endurance-geometry.mjs`
+
+A focused dynamic geometry implementation exposing the hex operations currently supplied globally by `BALLOON` for campaign.
+
+It receives a geometry descriptor and contains no UI/run-state logic.
+
 ### `src/endurance-game.mjs`
-Endurance-specific runtime controller or thin specialization around reusable shot-resolution primitives.
+
+Endurance runtime controller or thin specialization around reusable shot-resolution primitives.
 
 Responsibilities:
 
-- run clock;
-- round counter;
-- scheduled row insertion;
-- expansion state;
-- transition lock;
+- active run clock;
+- round and `shotsInRound`;
+- row insertion;
+- current difficulty/spatial stage;
+- zoom transition state;
+- clear-bonus latch;
 - failure checks;
-- clear bonus;
-- mode-specific snapshot fields.
+- Endurance-specific snapshots.
 
-The preferred implementation should reuse shot physics, orb queue, settlement, effects, audio, and renderer code rather than fork them wholesale.
+### Shared gameplay extraction
 
-### Shared game code
-
-If the existing `SkyRescueGame` contains logic needed by both modes, extract only targeted shared primitives such as:
+Reuse rather than fork:
 
 - projectile launch/update;
-- settle result application;
-- effects spawning;
-- queue reconciliation;
-- collision helpers.
+- collision/settlement operations where geometry can be injected;
+- queue generation/reconciliation;
+- scoring primitives;
+- particle/impact effects;
+- audio callbacks;
+- renderer orb/special drawing.
 
-Do not rewrite unrelated campaign code.
+Extract only the narrow pieces required to inject dynamic geometry. Do not rewrite unrelated campaign systems.
 
-### `src/endurance-ui.mjs` or campaign UI extension
-Handles intro panel, record labels, Endurance result rendering, and mode-specific HUD labels.
+### UI/save
 
-### Save layer
-Extends the current versioned save schema with Endurance records.
+Extend app/UI flow with an Endurance intro/result path and extend the existing versioned save schema with Endurance records.
 
 ---
 
 ## 13. Data Flow
 
-### Starting a run
+### Start
 
-1. User chooses `Endurance`.
-2. App loads saved records.
-3. Endurance controller creates stage-0 geometry and a seeded initial board.
-4. Runtime initializes score, round, shot-in-round counter, run clock, next expansion time, queue, and effects.
-5. HUD switches to Endurance labels.
+1. User chooses Endurance.
+2. App loads records.
+3. Create stage-0 geometry.
+4. Generate four initial rows using a run seed.
+5. Initialize `round=1`, `shotsInRound=0`, score, timer, palette, queue, stage timers, and FX.
+6. Switch HUD to Endurance mode.
 
-### Resolving a shot
+### Resolve shot
 
-1. Projectile lands using current dynamic geometry.
-2. Pop/drop resolution runs.
-3. Score and combo update.
-4. Empty-board clear bonus is checked.
-5. Shot-in-round increments.
-6. Failure line is checked.
-7. If this is shot 3, insert a new row and increment the round.
-8. Failure line is checked again.
-9. Expansion timer is evaluated.
-10. Snapshot/UI updates.
+1. Land/snap using current dynamic geometry.
+2. Resolve pop/drop.
+3. Calculate normal score then Endurance multiplier.
+4. Detect a new empty-board transition and award clear bonus once.
+5. Increment `shotsInRound`.
+6. Check failure line.
+7. On shot 3: shift board, generate row, reset shot count, increment active round, grant survival bonus.
+8. Check failure again.
+9. Evaluate whether a timed difficulty/spatial stage should trigger.
+10. Emit snapshot.
 
 ### Expansion
 
-1. Compute the next stage geometry.
-2. Remap all occupied cells to preserve centered relative layout.
-3. Lock firing.
-4. Animate old -> new positions/scale.
-5. Adopt the new geometry as authoritative.
-6. Unlock firing.
-7. Continue the current round count; do not reset the 3-shot cadence.
+1. Calculate next geometry.
+2. If next radius would be <6.5, advance difficulty stage without spatial remap.
+3. Otherwise remap all occupied cells `c -> c + 1`.
+4. Lock firing.
+5. Animate old -> new geometry for 0.6 s.
+6. Adopt new geometry as authoritative.
+7. Check failure using new geometry.
+8. Unlock firing.
+9. Preserve current round and `shotsInRound`.
 
 ---
 
-## 14. Error and Edge-Case Handling
+## 14. Timing and Pause Safety
 
-The implementation must explicitly handle:
+Use accumulated active `dt`, not `Date.now()` wall time, for Endurance time.
 
-- empty board in campaign;
-- empty board in Endurance;
-- row insertion onto an empty Endurance board;
-- queue colors when the board is temporarily empty;
-- geometry expansion while no balls exist;
-- expansion immediately after a third-shot row insertion;
-- pause during an expansion animation;
-- tab/background timing jumps;
-- mobile resize/orientation changes mid-run;
-- deterministic row generation tests;
-- maximum practical expansion stage/readability floor;
-- save data from versions without Endurance fields.
+Rules:
 
-The run timer should use elapsed active gameplay time rather than wall-clock time while paused. Large `requestAnimationFrame` gaps after a background tab must not skip multiple expansion stages in one frame without controlled processing.
+- pause stops the run clock and zoom transition;
+- hidden/background tab gaps are clamped using the same safe-frame strategy as gameplay;
+- one frame may advance at most one difficulty stage;
+- if multiple thresholds were technically crossed during a long suspension, process them on subsequent active frames rather than jumping several spatial stages at once;
+- resize/orientation changes recalculate rendering scale but do not change logical stage, round, or score.
 
 ---
 
@@ -473,82 +505,97 @@ The run timer should use elapsed active gameplay time rather than wall-clock tim
 
 ### Campaign regression
 
-- clearing the last ball in a clear level completes immediately;
-- emptying the board in rescue/collect/anchor cannot leave `status === 'playing'` forever;
-- normal non-empty campaign objectives retain existing behavior.
+- clearing the final ball in `clear` completes immediately;
+- an empty rescue/collect/anchor board never remains `playing`;
+- non-empty campaign objective behavior remains unchanged.
 
-### Endurance core tests
+### Endurance core
 
-- exactly 3 resolved shots advance one round;
-- row insertion shifts the previous board correctly;
-- generated row uses valid cells and active palette;
-- generator avoids obvious fresh horizontal 3+ runs;
-- clearing the board awards one clear bonus and does not end the run;
-- stage 0 -> 1 remap preserves all cells/connectivity;
-- each expansion adds 2 logical columns and 2 row capacity;
-- expansion schedule matches configured base thresholds;
-- adaptive timing stays inside the +/-8 s bound;
-- round multiplier changes every 5 rounds;
+- start state is Round 1 / 0 of 3 shots;
+- exactly three resolved shots insert exactly one row and advance to Round 2;
+- row insertion shifts previous cells correctly;
+- generated row fills valid current-width top cells;
+- generator is deterministic and avoids horizontal fresh 3+ runs;
+- temporary empty board uses configured palette for queue generation;
+- empty-board transition awards one clear bonus but does not end run;
+- clear bonus cannot repeat while continuously empty;
+- spatial expansion adds two total columns and two row capacity;
+- remap preserves cell count and connectivity with no duplicate keys;
+- pressure adjustment equals -8/0/+8 at 0.45/0.60/0.75 and clamps outside;
+- timed stages match configured thresholds;
+- multiplier changes every five rounds and caps at 3.00x;
+- survival and clear bonuses use the multiplier;
+- special cadence begins no earlier than Round 4;
 - records update independently.
 
-### Geometry tests
+### Geometry
 
-For multiple stages:
+Across several supported spatial stages:
 
-- all cell centers remain inside logical playfield bounds;
+- all cell centers remain in playfield bounds;
 - neighbors are symmetric;
-- snap locations are valid;
+- snapping yields valid cells;
 - top connectivity works;
-- failure line detection is correct;
-- remapped boards do not create duplicate coordinates.
+- failure-line detection is correct;
+- next expansion stops when it would require radius <6.5.
 
-### Runtime tests
+### Runtime
 
-- firing is locked during zoom transition;
-- pause freezes Endurance clock;
-- third shot triggers row insertion once;
-- expansion does not reset shot-in-round count;
-- loss fires once when the stack reaches the launcher;
-- no max-shot failure exists in Endurance.
+- firing is locked during the 0.6 s zoom;
+- pause freezes timer and zoom;
+- row insertion fires once on the third shot;
+- expansion does not reset `shotsInRound`;
+- no max-shot failure exists;
+- loss fires once when structure reaches launcher;
+- a spatial expansion cannot lose mid-interpolation;
+- one active frame cannot skip several difficulty stages.
 
 ### Browser/visual smoke
 
-Capture at minimum:
+Capture and inspect at minimum:
 
-- Endurance intro panel desktop;
-- initial Endurance stage desktop;
-- one completed round with wider generated row;
-- first expansion transition/result;
-- later wider stage;
+- Endurance intro desktop;
+- initial Endurance run;
+- state after first generated row;
+- first expanded board;
+- later wider board;
 - Endurance result dialog;
 - mobile portrait before and after expansion;
 - mobile landscape after expansion.
 
-Assert no horizontal overflow and that the shot queue, launcher, score, round, timer, and danger line remain visible/readable.
+Assert no horizontal overflow and verify launcher, shot queue, score, combo, Round, `Do rzędu`, timer, and failure line remain readable.
 
 ---
 
-## 16. Initial Balance Constants
-
-These values are explicitly first-pass tuning values, not permanent design promises:
+## 16. Initial Configuration
 
 ```js
-shotsPerRound: 3
-initialEvenCols: 10
-initialOddCols: 9
-initialMaxRows: 10
-rowsAddedPerExpansion: 2
-colsAddedPerSidePerExpansion: 1
-expansionTimesSeconds: [55, 100, 140, 175, 205]
-laterExpansionIntervalSeconds: 27
-adaptiveExpansionWindowSeconds: 8
-zoomDurationSeconds: 0.6
-initialColorCount: 4
-roundMultiplierStepRounds: 5
-roundMultiplierStep: 0.25
+const ENDURANCE_CONFIG = {
+  shotsPerRound: 3,
+  initialRows: 4,
+  initialEvenCols: 10,
+  initialOddCols: 9,
+  initialMaxRows: 10,
+  rowsAddedPerExpansion: 2,
+  colsAddedPerSidePerExpansion: 1,
+  minOrbRadius: 6.5,
+  expansionTimesSeconds: [55, 100, 140, 175, 205],
+  laterExpansionIntervalSeconds: 27,
+  adaptiveExpansionWindowSeconds: 8,
+  zoomDurationSeconds: 0.6,
+  initialColorCount: 4,
+  fifthColorStage: 3,
+  roundMultiplierStepRounds: 5,
+  roundMultiplierStep: 0.25,
+  maxEnduranceMultiplier: 3,
+  survivalBonus: 100,
+  clearBonus: 1000,
+  firstSpecialRound: 4,
+  specialEveryResolvedShots: 6,
+};
 ```
 
-The implementation should centralize them in one Endurance configuration object so playtesting can rebalance them quickly.
+These are first-pass balancing values and must be centralized so later playtesting can change them without redesigning the mode.
 
 ---
 
@@ -558,26 +605,27 @@ This pass does not include:
 
 - online/global leaderboards;
 - multiplayer Endurance;
-- meta-progression;
 - coins, energy, lives, shops, or monetization;
-- endless shrinking below a readable orb size;
+- real-time row drops independent of the three-shot cadence;
 - procedural campaign levels;
-- real-time falling rows independent of the 3-shot cadence;
-- wind affecting projectile physics.
+- storm lightning in Endurance;
+- wind affecting projectile physics;
+- shrinking orbs below the readability floor just to keep expanding spatially.
 
 ---
 
 ## Acceptance Summary
 
-The feature is complete when:
+The work is complete when:
 
-1. campaign can no longer remain active on an empty board;
+1. campaign cannot remain active on an empty board;
 2. Endurance is launchable from the main Sky Rescue UI;
-3. every 3 resolved shots insert a fresh row;
-4. clearing the Endurance board awards a bonus and continues;
-5. the logical board progressively widens and gains row capacity;
-6. expansion visibly zooms/repositions the existing board without changing its structure;
-7. new rows use the newly available width after expansion;
-8. score, time, round, and records work independently from campaign stars/masteries;
-9. the run ends only when the stack reaches the launcher danger zone;
-10. desktop and mobile automated smoke tests pass through at least one geometry expansion.
+3. the run starts with four generated rows and Round 1;
+4. every three resolved shots insert one fresh row and advance the round;
+5. clearing Endurance awards one clear bonus and continues;
+6. timed stages progressively widen/increase board capacity until the readability floor;
+7. an expansion smoothly remaps and zooms existing balls without changing their structure;
+8. generated rows use new side columns after widening;
+9. score, active time, highest round, and records are independent from campaign stars/masteries;
+10. run ends only when occupied structure reaches the launcher danger line;
+11. desktop and mobile automated smoke tests pass through at least one spatial expansion.
