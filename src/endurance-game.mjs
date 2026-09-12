@@ -2,6 +2,7 @@ import { SkyRescueGame } from './game.mjs';
 import { EnduranceRenderer } from './endurance-renderer.mjs';
 import {
   ENDURANCE_CONFIG,
+  adjustedExpansionTimeSeconds,
   clearBonus,
   enduranceMultiplier,
   generateEnduranceRow,
@@ -11,8 +12,10 @@ import {
   survivalBonus,
 } from './endurance-core.mjs';
 import {
+  canExpandSpatially,
   createEnduranceGeometry,
   failureLineReached,
+  remapGridForExpansion,
   shiftGridForNewRow,
 } from './endurance-geometry.mjs';
 import {
@@ -38,6 +41,7 @@ export class EnduranceGame extends SkyRescueGame {
     this.rowPhase = 0;
     this.clearBonusArmed = true;
     this.lastIssuedShotWasSpecial = false;
+    this.pendingExpansion = null;
   }
 
   start(seed = 'endurance') {
@@ -92,6 +96,7 @@ export class EnduranceGame extends SkyRescueGame {
     this.elapsedMs = 0;
     this.clearBonusArmed = this.grid.size > 0;
     this.lastIssuedShotWasSpecial = false;
+    this.pendingExpansion = null;
     this.emitState();
   }
 
@@ -122,6 +127,80 @@ export class EnduranceGame extends SkyRescueGame {
     this.queue = reconcileShotQueue(this.queue, playable, (colors) => (
       colors[Math.min(colors.length - 1, Math.floor(this.rng() * colors.length))]
     ));
+  }
+
+  shoot() {
+    if (this.pendingExpansion) return;
+    return super.shoot();
+  }
+
+  update(dt) {
+    if (this.paused || this.status !== 'playing') return;
+    const safeDt = Math.max(0, Number(dt) || 0);
+    this.elapsedMs += safeDt * 1000;
+
+    if (this.pendingExpansion) {
+      this.advanceExpansion(safeDt);
+      return;
+    }
+
+    super.update(safeDt);
+    if (!this.projectile && !this.pendingExpansion && this.status === 'playing') {
+      this.maybeAdvanceDifficultyStage();
+    }
+  }
+
+  maybeAdvanceDifficultyStage() {
+    if (this.status !== 'playing' || this.pendingExpansion) return false;
+    const nextStage = this.difficultyStage + 1;
+    const lowest = this.B.lowestRow(this.grid);
+    const pressure = lowest < 0 ? 0 : lowest / Math.max(1, this.B.MAXROW);
+    const thresholdMs = adjustedExpansionTimeSeconds(nextStage, pressure, this.config) * 1000;
+    if (this.elapsedMs < thresholdMs) return false;
+
+    this.difficultyStage = nextStage;
+    this.reconcileQueueColors();
+    this.callbacks.onEnduranceStage?.({ difficultyStage: this.difficultyStage, pressure });
+
+    if (!canExpandSpatially(this.spatialStage, this.config)) {
+      this.emitState();
+      return true;
+    }
+
+    const fromGeometry = this.B;
+    const toGeometry = createEnduranceGeometry({ spatialStage: this.spatialStage + 1, rowPhase: this.rowPhase });
+    const fromGrid = new Map(this.grid);
+    const toGrid = remapGridForExpansion(this.grid);
+    this.pendingExpansion = {
+      fromGeometry,
+      toGeometry,
+      fromGrid,
+      toGrid,
+      elapsed: 0,
+      duration: Math.max(.01, Number(this.config.zoomDurationSeconds) || .6),
+    };
+    this.callbacks.onEnduranceExpansionStart?.({ from: this.spatialStage, to: this.spatialStage + 1 });
+    this.emitState();
+    return true;
+  }
+
+  advanceExpansion(dt) {
+    const pending = this.pendingExpansion;
+    if (!pending || this.paused || this.status !== 'playing') return;
+    pending.elapsed = Math.min(pending.duration, pending.elapsed + Math.max(0, Number(dt) || 0));
+    if (pending.elapsed < pending.duration) return;
+
+    this.grid = pending.toGrid;
+    this.B = pending.toGeometry;
+    this.spatialStage += 1;
+    this.pendingExpansion = null;
+    this.reconcileQueueColors();
+    if (failureLineReached(this.grid, this.B)) {
+      this.finishEndurance('Kulki dotarły do wyrzutni.');
+      return;
+    }
+    this.callbacks.onEnduranceExpansion?.({ spatialStage: this.spatialStage, radius: this.B.RAD });
+    this.emitState();
   }
 
   land() {
@@ -237,17 +316,38 @@ export class EnduranceGame extends SkyRescueGame {
       elapsedMs: this.elapsedMs,
       difficultyStage: this.difficultyStage,
       spatialStage: this.spatialStage,
+      expanding: Boolean(this.pendingExpansion),
       misses: this.misses,
       boss: false,
     };
   }
 
   renderState() {
+    const base = super.renderState();
+    let transitionCells = null;
+    if (this.pendingExpansion) {
+      const pending = this.pendingExpansion;
+      const t = Math.max(0, Math.min(1, pending.elapsed / pending.duration));
+      const smooth = t * t * (3 - 2 * t);
+      transitionCells = [...pending.fromGrid.entries()].map(([key, color]) => {
+        const [c, r] = pending.fromGeometry.split(key);
+        const fromX = pending.fromGeometry.colX(c, r);
+        const fromY = pending.fromGeometry.rowY(r);
+        const toX = pending.toGeometry.colX(c + 1, r);
+        const toY = pending.toGeometry.rowY(r);
+        return {
+          color,
+          x: fromX + (toX - fromX) * smooth,
+          y: fromY + (toY - fromY) * smooth,
+          radius: pending.fromGeometry.RAD + (pending.toGeometry.RAD - pending.fromGeometry.RAD) * smooth,
+        };
+      });
+    }
     return {
-      ...super.renderState(),
+      ...base,
       mode: 'endurance',
       geometry: this.B,
-      transitionCells: null,
+      transitionCells,
     };
   }
 
