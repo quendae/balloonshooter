@@ -52,11 +52,11 @@ try {
       await page.waitForFunction((value) => document.querySelector('#dropValue')?.textContent === value, expected, { timeout: 5000 });
     }
   }
-  await page.waitForFunction(() => document.querySelector('#shotsValue')?.textContent === '2', { timeout: 6000 });
+  await page.waitForFunction(() => document.querySelector('#shotsValue')?.textContent === '2', null, { timeout: 6000 });
   assert((await page.locator('#dropValue').textContent()) === '3', 'new round should reset row countdown to three shots');
   await page.screenshot({ path: 'artifacts/endurance-round-2.png', fullPage: true });
 
-  await page.waitForFunction(() => document.querySelector('#gameScreen')?.dataset.spatialStage === '1', { timeout: 70_000 });
+  await page.waitForFunction(() => document.querySelector('#gameScreen')?.dataset.spatialStage === '1', null, { timeout: 70_000 });
   await page.screenshot({ path: 'artifacts/endurance-zoom-stage-1.png', fullPage: true });
 
   for (let attempt = 0; attempt < 60; attempt += 1) {
@@ -65,13 +65,13 @@ try {
     await page.waitForTimeout(620);
   }
 
-  await page.waitForFunction(() => document.querySelector('#resultDialog')?.open === true, { timeout: 8000 });
+  await page.waitForFunction(() => document.querySelector('#resultDialog')?.open === true, null, { timeout: 8000 });
   assert((await page.locator('#resultKicker').textContent())?.includes('Endurance') || (await page.locator('#resultKicker').textContent())?.includes('rekord'), 'Endurance loss should use the Endurance result state');
   assert(await page.locator('#resultStars').isHidden(), 'Endurance result should not show campaign stars');
   await page.screenshot({ path: 'artifacts/endurance-result.png', fullPage: true });
 
   await page.locator('#retryButton').click();
-  await page.waitForFunction(() => document.querySelector('#gameScreen')?.dataset.mode === 'endurance' && document.querySelector('#shotsValue')?.textContent === '1', { timeout: 5000 });
+  await page.waitForFunction(() => document.querySelector('#gameScreen')?.dataset.mode === 'endurance' && document.querySelector('#shotsValue')?.textContent === '1', null, { timeout: 5000 });
   assert((await page.locator('#dropValue').textContent()) === '3', 'Endurance retry should start a fresh run');
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
