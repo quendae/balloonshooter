@@ -2,6 +2,7 @@ import { LEVELS, WORLDS, getWorld } from './levels.mjs';
 import { applyCampaignResult, evaluateMasteries } from './sky-rescue-core.mjs';
 import { loadProgress, saveProgress } from './save.mjs';
 import { SkyRescueGame } from './game.mjs';
+import { EnduranceGame } from './endurance-game.mjs';
 import { applyStormFeedbackPatch } from './storm-feedback.mjs';
 import { SkyAudio } from './audio.mjs';
 import {
@@ -18,52 +19,89 @@ const $ = (id) => document.getElementById(id);
 const refs = {
   mapScreen: $('mapScreen'), gameScreen: $('gameScreen'), campaignMap: $('campaignMap'), totalStars: $('totalStars'),
   totalMasteries: $('totalMasteries'), campaignProgressBank: $('campaignProgressBank'), soundButton: $('soundButton'),
-  continueButton: $('continueButton'), homeButton: $('homeButton'), backButton: $('backButton'), pauseButton: $('pauseButton'),
-  canvas: $('gameCanvas'), gameWorldLabel: $('gameWorldLabel'), gameLevelLabel: $('gameLevelLabel'),
+  continueButton: $('continueButton'), enduranceButton: $('enduranceButton'), homeButton: $('homeButton'), backButton: $('backButton'),
+  pauseButton: $('pauseButton'), canvas: $('gameCanvas'), gameWorldLabel: $('gameWorldLabel'), gameLevelLabel: $('gameLevelLabel'),
   objectiveLabel: $('objectiveLabel'), objectiveCurrent: $('objectiveCurrent'), objectiveTarget: $('objectiveTarget'),
   scoreValue: $('scoreValue'), comboValue: $('comboValue'), shotQueue: $('shotQueue'), shotsValue: $('shotsValue'),
-  dropValue: $('dropValue'), missesValue: $('missesValue'), comboCallout: $('comboCallout'), bossMeter: $('bossMeter'),
-  bossPips: $('bossPips'), resultDialog: $('resultDialog'), resultKicker: $('resultKicker'), resultTitle: $('resultTitle'),
-  resultStars: $('resultStars'), resultScore: $('resultScore'), resultDetail: $('resultDetail'), resultMasteries: $('resultMasteries'),
+  dropValue: $('dropValue'), missesValue: $('missesValue'), statOneLabel: $('statOneLabel'), statTwoLabel: $('statTwoLabel'),
+  statThreeLabel: $('statThreeLabel'), comboCallout: $('comboCallout'), bossMeter: $('bossMeter'), bossPips: $('bossPips'),
+  enduranceDialog: $('enduranceDialog'), enduranceStartButton: $('enduranceStartButton'), enduranceBackButton: $('enduranceBackButton'),
+  enduranceBestScore: $('enduranceBestScore'), enduranceBestTime: $('enduranceBestTime'), enduranceBestRound: $('enduranceBestRound'),
+  resultDialog: $('resultDialog'), resultKicker: $('resultKicker'), resultTitle: $('resultTitle'), resultStars: $('resultStars'),
+  resultScore: $('resultScore'), resultDetail: $('resultDetail'), resultMasteries: $('resultMasteries'),
   resultMapButton: $('resultMapButton'), retryButton: $('retryButton'), nextButton: $('nextButton'), pauseDialog: $('pauseDialog'),
-  pauseMapButton: $('pauseMapButton'), resumeButton: $('resumeButton'),
+  pauseTitle: $('pauseTitle'), pauseMapButton: $('pauseMapButton'), resumeButton: $('resumeButton'),
 };
 const CAMPAIGN_MAX = LEVELS.length * 3;
 
 let progress = loadProgress();
 const audio = new SkyAudio(progress.settings.sound);
 let currentLevel = null;
+let activeGame = null;
+let activeMode = 'campaign';
 let calloutTimer = 0;
 let runMastery = null;
+
+function formatDuration(ms) {
+  const totalSeconds = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
 
 function resetRunMastery() {
   runMastery = { lastShotsUsed: 0, pendingBounced: false, successfulBankShots: 0, largestDrop: 0 };
 }
 
 function trackCallout(text) {
+  if (!runMastery) return;
   if (text === 'AVALANCHE' || text === 'SKY FALL') runMastery.largestDrop = Math.max(runMastery.largestDrop, 6);
 }
 
 applyStormFeedbackPatch(SkyRescueGame);
 
-const game = new SkyRescueGame(refs.canvas, {
-  onState: updateHud,
-  onComplete: showWin,
-  onFail: showLoss,
-  onShot: (shot) => { runMastery.pendingBounced = false; audio.shot(shot.type); },
-  onBounce: () => { runMastery.pendingBounced = true; audio.bounce(); },
-  onCallout: (text) => { trackCallout(text); audio.pop(text); flashCallout(text); },
-  onRescue: () => { audio.rescue(); flashCallout('RESCUE!'); },
-  onCollect: () => { audio.collect(); flashCallout('STAR!'); },
-  onAnchor: () => { audio.anchor(); flashCallout('ANCHOR DOWN'); },
-  onCeilingDrop: () => { audio.ceiling(); flashCallout('CEILING DROP'); },
-  onLightning: () => { audio.lightning(); flashCallout('PIORUN!'); },
-  onBossPhase: ({ current, total }) => {
-    renderBossPips(refs.bossPips, current, total);
-    audio.boss();
-    flashCallout(current >= total ? 'STORM BROKEN' : `PHASE ${current}/${total}`);
-  },
-});
+function destroyActiveGame() {
+  activeGame?.destroy?.();
+  activeGame = null;
+}
+
+function createCampaignGame() {
+  return new SkyRescueGame(refs.canvas, {
+    onState: updateHud,
+    onComplete: showWin,
+    onFail: showLoss,
+    onShot: (shot) => {
+      if (runMastery) runMastery.pendingBounced = false;
+      audio.shot(shot.type);
+    },
+    onBounce: () => {
+      if (runMastery) runMastery.pendingBounced = true;
+      audio.bounce();
+    },
+    onCallout: (text) => { trackCallout(text); audio.pop(text); flashCallout(text); },
+    onRescue: () => { audio.rescue(); flashCallout('RESCUE!'); },
+    onCollect: () => { audio.collect(); flashCallout('STAR!'); },
+    onAnchor: () => { audio.anchor(); flashCallout('ANCHOR DOWN'); },
+    onCeilingDrop: () => { audio.ceiling(); flashCallout('CEILING DROP'); },
+    onLightning: () => { audio.lightning(); flashCallout('PIORUN!'); },
+    onBossPhase: ({ current, total }) => {
+      renderBossPips(refs.bossPips, current, total);
+      audio.boss();
+      flashCallout(current >= total ? 'STORM BROKEN' : `PHASE ${current}/${total}`);
+    },
+  });
+}
+
+function createEnduranceGame() {
+  return new EnduranceGame(refs.canvas, {
+    onState: updateHud,
+    onEnduranceEnd: showEnduranceEnd,
+    onShot: (shot) => audio.shot(shot.type),
+    onBounce: () => audio.bounce(),
+    onCallout: (text) => { audio.pop(text); flashCallout(text); },
+    onEnduranceRow: () => { audio.ceiling(); flashCallout('NOWY RZĄD'); },
+  });
+}
 
 function renderMap() {
   renderCampaignMap(refs.campaignMap, WORLDS, LEVELS, progress, startLevel);
@@ -75,6 +113,26 @@ function renderMap() {
   const next = firstPlayableLevel(LEVELS, progress);
   refs.continueButton.textContent = progress.levels?.[next.id]?.completed ? 'Zagraj ponownie' : `Poziom ${next.number}`;
   refs.continueButton.onclick = () => startLevel(next);
+}
+
+function renderEnduranceRecords() {
+  const record = progress.endurance || { bestScore: 0, bestTimeMs: 0, bestRound: 0 };
+  refs.enduranceBestScore.textContent = record.bestScore.toLocaleString('pl-PL');
+  refs.enduranceBestTime.textContent = formatDuration(record.bestTimeMs);
+  refs.enduranceBestRound.textContent = String(record.bestRound);
+}
+
+function updateEnduranceRecords(result) {
+  const previous = progress.endurance || { bestScore: 0, bestTimeMs: 0, bestRound: 0 };
+  const next = {
+    bestScore: Math.max(previous.bestScore || 0, Number(result.score) || 0),
+    bestTimeMs: Math.max(previous.bestTimeMs || 0, Number(result.elapsedMs) || 0),
+    bestRound: Math.max(previous.bestRound || 0, Number(result.round) || 0),
+  };
+  const improved = next.bestScore > previous.bestScore || next.bestTimeMs > previous.bestTimeMs || next.bestRound > previous.bestRound;
+  progress = saveProgress({ ...progress, endurance: next });
+  renderEnduranceRecords();
+  return improved;
 }
 
 function syncSoundButton() {
@@ -92,46 +150,115 @@ function toggleSound() {
 }
 
 function showMap() {
+  destroyActiveGame();
+  currentLevel = null;
+  activeMode = 'campaign';
+  runMastery = null;
+  refs.gameScreen.dataset.mode = activeMode;
+  refs.gameScreen.dataset.spatialStage = '0';
   if (refs.pauseDialog.open) refs.pauseDialog.close();
   if (refs.resultDialog.open) refs.resultDialog.close();
+  if (refs.enduranceDialog.open) refs.enduranceDialog.close();
   refs.gameScreen.hidden = true;
   refs.mapScreen.hidden = false;
   renderMap();
+  renderEnduranceRecords();
   window.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
 }
 
 function startLevel(level) {
+  destroyActiveGame();
+  activeMode = 'campaign';
   currentLevel = level;
   resetRunMastery();
   const world = getWorld(level.world);
+  refs.gameScreen.dataset.mode = activeMode;
+  refs.gameScreen.dataset.spatialStage = '0';
   refs.mapScreen.hidden = true;
   refs.gameScreen.hidden = false;
   refs.gameWorldLabel.textContent = world?.name || 'Sky Rescue';
   refs.gameLevelLabel.textContent = `${level.number}. ${level.name}`;
   refs.bossMeter.hidden = !level.boss;
+  refs.statOneLabel.textContent = 'Strzały';
+  refs.statTwoLabel.textContent = 'Sufit';
+  refs.statThreeLabel.textContent = 'Pudła';
   if (level.boss) renderBossPips(refs.bossPips, 0, level.objective.amount || 0);
   if (refs.resultDialog.open) refs.resultDialog.close();
   if (refs.pauseDialog.open) refs.pauseDialog.close();
-  game.start(level);
+  activeGame = createCampaignGame();
+  activeGame.start(level);
+  requestAnimationFrame(() => refs.canvas.focus({ preventScroll: true }));
+  window.scrollTo({ top: 0, behavior: 'auto' });
+}
+
+function openEnduranceIntro() {
+  renderEnduranceRecords();
+  if (!refs.enduranceDialog.open) refs.enduranceDialog.showModal();
+}
+
+function startEndurance() {
+  destroyActiveGame();
+  activeMode = 'endurance';
+  currentLevel = null;
+  runMastery = null;
+  refs.gameScreen.dataset.mode = activeMode;
+  refs.gameScreen.dataset.spatialStage = '0';
+  refs.mapScreen.hidden = true;
+  refs.gameScreen.hidden = false;
+  refs.gameWorldLabel.textContent = 'Tryb punktowy';
+  refs.gameLevelLabel.textContent = 'Endurance';
+  refs.objectiveLabel.textContent = 'Przetrwaj';
+  refs.objectiveCurrent.textContent = '1';
+  refs.objectiveTarget.textContent = '∞';
+  refs.bossMeter.hidden = true;
+  refs.statOneLabel.textContent = 'Runda';
+  refs.statTwoLabel.textContent = 'Do rzędu';
+  refs.statThreeLabel.textContent = 'Czas';
+  if (refs.enduranceDialog.open) refs.enduranceDialog.close();
+  if (refs.resultDialog.open) refs.resultDialog.close();
+  if (refs.pauseDialog.open) refs.pauseDialog.close();
+  activeGame = createEnduranceGame();
+  activeGame.start(`run-${Date.now()}`);
   requestAnimationFrame(() => refs.canvas.focus({ preventScroll: true }));
   window.scrollTo({ top: 0, behavior: 'auto' });
 }
 
 function updateHud(snapshot) {
   if (!snapshot) return;
-  if (runMastery && snapshot.shotsUsed > runMastery.lastShotsUsed) {
-    if (runMastery.pendingBounced && snapshot.combo > 0) runMastery.successfulBankShots += 1;
-    runMastery.pendingBounced = false;
-    runMastery.lastShotsUsed = snapshot.shotsUsed;
+  refs.gameScreen.dataset.mode = activeMode;
+  refs.gameScreen.dataset.spatialStage = String(snapshot.spatialStage ?? 0);
+
+  if (snapshot.mode === 'endurance') {
+    refs.statOneLabel.textContent = 'Runda';
+    refs.statTwoLabel.textContent = 'Do rzędu';
+    refs.statThreeLabel.textContent = 'Czas';
+    refs.objectiveLabel.textContent = 'Przetrwaj';
+    refs.objectiveCurrent.textContent = String(snapshot.round);
+    refs.objectiveTarget.textContent = '∞';
+    refs.gameWorldLabel.textContent = 'Tryb punktowy';
+    refs.gameLevelLabel.textContent = `Runda ${snapshot.round}`;
+    refs.shotsValue.textContent = String(snapshot.round);
+    refs.dropValue.textContent = String(snapshot.shotsUntilRow);
+    refs.missesValue.textContent = formatDuration(snapshot.elapsedMs);
+  } else {
+    if (runMastery && snapshot.shotsUsed > runMastery.lastShotsUsed) {
+      if (runMastery.pendingBounced && snapshot.combo > 0) runMastery.successfulBankShots += 1;
+      runMastery.pendingBounced = false;
+      runMastery.lastShotsUsed = snapshot.shotsUsed;
+    }
+    refs.statOneLabel.textContent = 'Strzały';
+    refs.statTwoLabel.textContent = 'Sufit';
+    refs.statThreeLabel.textContent = 'Pudła';
+    refs.objectiveLabel.textContent = snapshot.objectiveLabel;
+    refs.objectiveCurrent.textContent = String(snapshot.objective.current);
+    refs.objectiveTarget.textContent = String(snapshot.objective.target);
+    refs.shotsValue.textContent = String(snapshot.shotsRemaining);
+    refs.dropValue.textContent = String(snapshot.shotsUntilDrop);
+    refs.missesValue.textContent = String(snapshot.misses);
   }
-  refs.objectiveLabel.textContent = snapshot.objectiveLabel;
-  refs.objectiveCurrent.textContent = String(snapshot.objective.current);
-  refs.objectiveTarget.textContent = String(snapshot.objective.target);
+
   refs.scoreValue.textContent = snapshot.score.toLocaleString('pl-PL');
   refs.comboValue.textContent = snapshot.combo > 0 ? `×${snapshot.combo}` : '—';
-  refs.shotsValue.textContent = String(snapshot.shotsRemaining);
-  refs.dropValue.textContent = String(snapshot.shotsUntilDrop);
-  refs.missesValue.textContent = String(snapshot.misses);
   renderShotQueue(refs.shotQueue, snapshot.queue);
   if (snapshot.boss) renderBossPips(refs.bossPips, snapshot.bossPhase, snapshot.bossPhases);
 }
@@ -158,6 +285,7 @@ function showWin(result) {
   refs.resultKicker.textContent = result.level.boss ? 'Burza pokonana' : 'Poziom ukończony';
   refs.resultTitle.textContent = result.stars === 3 ? 'Perfekcyjnie.' : result.stars === 2 ? 'Dobra robota.' : 'Gotowe.';
   refs.resultScore.textContent = result.score.toLocaleString('pl-PL');
+  refs.resultStars.hidden = false;
   refs.resultStars.innerHTML = [0, 1, 2].map((index) => `<span class="${index < result.stars ? '' : 'empty'}" aria-hidden="true">★</span>`).join('');
   refs.resultStars.setAttribute('aria-label', `${result.stars} z 3 gwiazdek`);
   refs.resultDetail.textContent = newMasteries.length
@@ -165,6 +293,7 @@ function showWin(result) {
     : `${result.shotsRemaining} strzałów zostało • ${result.misses} pudeł.`;
   refs.resultMasteries.hidden = false;
   renderMasteryBadges(refs.resultMasteries, storedMasteries, newMasteries);
+  refs.retryButton.textContent = 'Powtórz';
 
   const index = LEVELS.findIndex((level) => level.id === result.level.id);
   const next = LEVELS[index + 1] || null;
@@ -178,28 +307,45 @@ function showLoss(result) {
   refs.resultKicker.textContent = 'Koniec próby';
   refs.resultTitle.textContent = 'Jeszcze raz?';
   refs.resultScore.textContent = result.score.toLocaleString('pl-PL');
+  refs.resultStars.hidden = false;
   refs.resultStars.innerHTML = '<span class="empty">★</span><span class="empty">★</span><span class="empty">★</span>';
   refs.resultStars.setAttribute('aria-label', '0 z 3 gwiazdek');
   refs.resultDetail.textContent = result.reason;
   refs.resultMasteries.hidden = true;
+  refs.retryButton.textContent = 'Powtórz';
+  refs.nextButton.hidden = true;
+  refs.resultDialog.showModal();
+}
+
+function showEnduranceEnd(result) {
+  const improved = updateEnduranceRecords(result);
+  audio.loss();
+  refs.resultKicker.textContent = improved ? 'Nowy rekord' : 'Endurance zakończony';
+  refs.resultTitle.textContent = `Runda ${result.round}`;
+  refs.resultScore.textContent = result.score.toLocaleString('pl-PL');
+  refs.resultStars.hidden = true;
+  refs.resultDetail.textContent = `${formatDuration(result.elapsedMs)} • ${result.resolvedShots} strzałów • ${result.reason}`;
+  refs.resultMasteries.hidden = true;
+  refs.retryButton.textContent = 'Jeszcze raz';
   refs.nextButton.hidden = true;
   refs.resultDialog.showModal();
 }
 
 function openPause() {
-  if (!currentLevel || game.status !== 'playing' || refs.pauseDialog.open) return;
-  game.setPaused(true);
+  if (!activeGame || activeGame.status !== 'playing' || refs.pauseDialog.open) return;
+  activeGame.setPaused(true);
+  refs.pauseTitle.textContent = activeMode === 'endurance' ? 'Endurance' : 'Sky Rescue';
   refs.pauseDialog.showModal();
 }
 
 function resumeGame() {
   if (refs.pauseDialog.open) refs.pauseDialog.close();
-  game.setPaused(false);
+  activeGame?.setPaused(false);
   refs.canvas.focus({ preventScroll: true });
 }
 
 function leaveForMap() {
-  game.setPaused(true);
+  activeGame?.setPaused(true);
   showMap();
 }
 
@@ -207,16 +353,22 @@ refs.homeButton.addEventListener('click', () => refs.gameScreen.hidden ? showMap
 refs.backButton.addEventListener('click', openPause);
 refs.pauseButton.addEventListener('click', openPause);
 refs.soundButton.addEventListener('click', toggleSound);
+refs.enduranceButton.addEventListener('click', openEnduranceIntro);
+refs.enduranceStartButton.addEventListener('click', startEndurance);
+refs.enduranceBackButton.addEventListener('click', () => refs.enduranceDialog.close());
 refs.resumeButton.addEventListener('click', resumeGame);
 refs.pauseMapButton.addEventListener('click', leaveForMap);
 refs.resultMapButton.addEventListener('click', showMap);
 refs.retryButton.addEventListener('click', () => {
   refs.resultDialog.close();
-  if (currentLevel) startLevel(currentLevel);
+  if (activeMode === 'endurance') startEndurance();
+  else if (currentLevel) startLevel(currentLevel);
 });
 
+refs.enduranceDialog.addEventListener('cancel', (event) => { event.preventDefault(); refs.enduranceDialog.close(); });
 refs.pauseDialog.addEventListener('cancel', (event) => { event.preventDefault(); resumeGame(); });
 refs.resultDialog.addEventListener('cancel', (event) => { event.preventDefault(); showMap(); });
 
 syncSoundButton();
 renderMap();
+renderEnduranceRecords();
