@@ -34,6 +34,8 @@ jobs:
         run: node shot-resolution.test.mjs
       - name: Endurance renderer tests
         run: node endurance-renderer.test.mjs
+      - name: Endurance runtime tests
+        run: node endurance-runtime.test.mjs
       - name: Wind corridor tests
         run: node wind.test.mjs
       - name: Pixel art contract tests
@@ -62,6 +64,7 @@ jobs:
           node --check src/endurance-geometry.mjs
           node --check src/shot-resolution.mjs
           node --check src/endurance-renderer.mjs
+          node --check src/endurance-game.mjs
           node --check src/levels.mjs
           node --check src/save.mjs
           node --check src/game-physics.mjs
