@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="styles/integrated.css">
   <link rel="stylesheet" href="styles/rack.css">
   <link rel="stylesheet" href="styles/storm.css">
+  <link rel="stylesheet" href="styles/endurance.css">
 </head>
 <body class="pixel-art">
   <div class="sky-decor sky-decor-a" aria-hidden="true"></div>
@@ -45,12 +46,15 @@
           <h1 id="campaignTitle">Dwadzieścia układów. Jedna dobra linia.</h1>
           <p>Klasyczne kulki, ręcznie zbudowane plansze i kilka zasad, które zmieniają sposób celowania.</p>
         </div>
-        <button class="button button-primary button-large" id="continueButton" type="button">Graj</button>
+        <div class="campaign-actions">
+          <button class="button button-primary button-large" id="continueButton" type="button">Graj</button>
+          <button class="button button-secondary button-large" id="enduranceButton" type="button">Endurance</button>
+        </div>
       </div>
       <div class="campaign-map" id="campaignMap" aria-label="Mapa kampanii"></div>
     </section>
 
-    <section class="screen game-screen" id="gameScreen" hidden aria-label="Rozgrywka">
+    <section class="screen game-screen" id="gameScreen" hidden aria-label="Rozgrywka" data-mode="campaign" data-spatial-stage="0">
       <div class="game-layout">
         <div class="playfield-frame">
           <div class="playfield-hud playfield-hud-top">
@@ -81,9 +85,9 @@
               <div class="shot-queue" id="shotQueue" aria-label="Aktualna i dwie następne kulki"></div>
             </div>
             <dl class="run-stats run-stats-inline">
-              <div><dt>Strzały</dt><dd id="shotsValue">0</dd></div>
-              <div><dt>Sufit</dt><dd id="dropValue">0</dd></div>
-              <div><dt>Pudła</dt><dd id="missesValue">0</dd></div>
+              <div><dt id="statOneLabel">Strzały</dt><dd id="shotsValue">0</dd></div>
+              <div><dt id="statTwoLabel">Sufit</dt><dd id="dropValue">0</dd></div>
+              <div><dt id="statThreeLabel">Pudła</dt><dd id="missesValue">0</dd></div>
             </dl>
             <div class="boss-meter" id="bossMeter" hidden>
               <div id="bossPips" class="boss-pips" aria-label="Postęp bossa"></div>
@@ -93,6 +97,21 @@
       </div>
     </section>
   </main>
+
+  <dialog class="game-dialog endurance-dialog" id="enduranceDialog" aria-labelledby="enduranceTitle">
+    <p class="dialog-kicker">Tryb punktowy</p>
+    <h2 id="enduranceTitle">Endurance</h2>
+    <p class="endurance-rule">3 strzały = nowy rząd</p>
+    <dl class="endurance-records">
+      <div><dt>Best Score</dt><dd id="enduranceBestScore">0</dd></div>
+      <div><dt>Best Time</dt><dd id="enduranceBestTime">00:00</dd></div>
+      <div><dt>Best Round</dt><dd id="enduranceBestRound">0</dd></div>
+    </dl>
+    <div class="dialog-actions">
+      <button class="button button-ghost" id="enduranceBackButton" type="button">Wróć</button>
+      <button class="button button-primary" id="enduranceStartButton" type="button">Start</button>
+    </div>
+  </dialog>
 
   <dialog class="game-dialog result-dialog" id="resultDialog" aria-labelledby="resultTitle">
     <p class="dialog-kicker" id="resultKicker">Poziom ukończony</p>
