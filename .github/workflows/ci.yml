@@ -38,6 +38,8 @@ jobs:
         run: node endurance-runtime.test.mjs
       - name: Endurance save migration
         run: node save.test.mjs
+      - name: Endurance UI contract
+        run: node endurance-ui.test.mjs
       - name: Wind corridor tests
         run: node wind.test.mjs
       - name: Pixel art contract tests
