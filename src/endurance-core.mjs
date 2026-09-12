@@ -52,7 +52,8 @@ export function pressureAdjustmentSeconds(value, config = ENDURANCE_CONFIG) {
   const window = config.adaptiveExpansionWindowSeconds;
   if (p <= .45) return -window;
   if (p >= .75) return window;
-  if (p <= .60) return -window + ((p - .45) / .15) * window;
+  if (Math.abs(p - .60) < 1e-12) return 0;
+  if (p < .60) return -window + ((p - .45) / .15) * window;
   return ((p - .60) / .15) * window;
 }
 
