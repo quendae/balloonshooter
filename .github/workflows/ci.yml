@@ -55,6 +55,7 @@ jobs:
           node --check balloon.js
           node --check src/sky-rescue-core.mjs
           node --check src/endurance-core.mjs
+          node --check src/endurance-geometry.mjs
           node --check src/levels.mjs
           node --check src/save.mjs
           node --check src/game-physics.mjs
