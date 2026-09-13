@@ -1,99 +1,65 @@
 export const ENDURANCE_CONFIG = Object.freeze({
-  shotsPerRound: 3,
   initialRows: 4,
-  initialEvenCols: 10,
-  initialOddCols: 9,
-  initialMaxRows: 10,
-  rowsAddedPerExpansion: 2,
-  colsAddedPerSidePerExpansion: 1,
-  minOrbRadius: 6.5,
-  expansionTimesSeconds: [55, 100, 140, 175, 205],
-  laterExpansionIntervalSeconds: 27,
-  adaptiveExpansionWindowSeconds: 8,
-  zoomDurationSeconds: 0.6,
+  initialEvenCols: 11,
+  initialOddCols: 10,
+  paletteThresholdMs: [60_000, 120_000],
   initialColorCount: 4,
-  fifthColorStage: 3,
-  roundMultiplierStepRounds: 5,
-  roundMultiplierStep: 0.25,
-  maxEnduranceMultiplier: 3,
-  survivalBonus: 100,
+  maxColorCount: 6,
+  comboStep: 0.10,
+  comboCap: 2.0,
   clearBonus: 1000,
-  firstSpecialRound: 4,
-  specialEveryResolvedShots: 6,
+  firstSpecialShot: 12,
+  specialInterval: 8,
+  atmosphereTransitionMs: 1500,
+  specialCalloutMs: 1500,
+  specialCalloutCooldownMs: 8000,
 });
 
-export function createEnduranceState() {
-  return {
-    round: 1,
-    shotsInRound: 0,
-    resolvedShots: 0,
-    difficultyStage: 0,
-    spatialStage: 0,
-  };
+export function paletteStageAt(elapsedMs, config = ENDURANCE_CONFIG) {
+  const ms = Math.max(0, Number(elapsedMs) || 0);
+  const thresholds = Array.isArray(config.paletteThresholdMs) ? config.paletteThresholdMs : [60_000, 120_000];
+  if (ms >= (Number(thresholds[1]) || 120_000)) return 2;
+  if (ms >= (Number(thresholds[0]) || 60_000)) return 1;
+  return 0;
 }
 
-export function advanceRoundState(state, config = ENDURANCE_CONFIG) {
-  const next = {
-    ...state,
-    resolvedShots: Math.max(0, Number(state?.resolvedShots) || 0) + 1,
-    shotsInRound: Math.max(0, Number(state?.shotsInRound) || 0) + 1,
-  };
-  let roundCompleted = false;
-  if (next.shotsInRound >= config.shotsPerRound) {
-    next.shotsInRound = 0;
-    next.round = Math.max(1, Number(state?.round) || 1) + 1;
-    roundCompleted = true;
-  }
-  return { state: next, roundCompleted };
-}
-
-export function pressureAdjustmentSeconds(value, config = ENDURANCE_CONFIG) {
-  const p = Math.max(0, Math.min(1, Number(value) || 0));
-  const window = config.adaptiveExpansionWindowSeconds;
-  if (p <= .45) return -window;
-  if (p >= .75) return window;
-  if (Math.abs(p - .60) < 1e-12) return 0;
-  if (p < .60) return -window + ((p - .45) / .15) * window;
-  return ((p - .60) / .15) * window;
-}
-
-export function baseExpansionTimeSeconds(stage, config = ENDURANCE_CONFIG) {
-  const value = Math.max(1, Math.floor(Number(stage) || 1));
-  const fixed = config.expansionTimesSeconds;
-  if (value <= fixed.length) return fixed[value - 1];
-  return fixed.at(-1) + (value - fixed.length) * config.laterExpansionIntervalSeconds;
-}
-
-export function adjustedExpansionTimeSeconds(stage, pressure, config = ENDURANCE_CONFIG) {
-  return baseExpansionTimeSeconds(stage, config) + pressureAdjustmentSeconds(pressure, config);
-}
-
-export function enduranceMultiplier(round, config = ENDURANCE_CONFIG) {
-  const safeRound = Math.max(1, Math.floor(Number(round) || 1));
-  const steps = Math.floor((safeRound - 1) / config.roundMultiplierStepRounds);
-  return Math.min(config.maxEnduranceMultiplier, 1 + steps * config.roundMultiplierStep);
-}
-
-export function survivalBonus(round, config = ENDURANCE_CONFIG) {
-  return Math.round(config.survivalBonus * enduranceMultiplier(round, config));
-}
-
-export function clearBonus(round, config = ENDURANCE_CONFIG) {
-  return Math.round(config.clearBonus * enduranceMultiplier(round, config));
-}
-
-export function paletteForStage(stage, config = ENDURANCE_CONFIG) {
-  const count = Math.max(1, Number(stage) >= config.fifthColorStage ? 5 : config.initialColorCount);
+export function paletteForElapsed(elapsedMs, config = ENDURANCE_CONFIG) {
+  const stage = paletteStageAt(elapsedMs, config);
+  const initial = Math.max(1, Math.floor(Number(config.initialColorCount) || 4));
+  const max = Math.max(initial, Math.floor(Number(config.maxColorCount) || 6));
+  const count = Math.min(max, initial + stage);
   return Array.from({ length: count }, (_, index) => index + 1);
 }
 
-export function scheduledSpecialType({ round = 1, resolvedShots = 0, previousWasSpecial = false } = {}, config = ENDURANCE_CONFIG) {
+export function enduranceComboMultiplier(combo, config = ENDURANCE_CONFIG) {
+  const streak = Math.max(1, Math.floor(Number(combo) || 1));
+  const step = Math.max(0, Number(config.comboStep) || 0);
+  const cap = Math.max(1, Number(config.comboCap) || 1);
+  return Math.min(cap, 1 + Math.max(0, streak - 1) * step);
+}
+
+export function classifyEnduranceResolution({ popped = 0, dropped = 0 } = {}) {
+  const removed = Math.max(0, Number(popped) || 0) + Math.max(0, Number(dropped) || 0);
+  return { successful: removed > 0, removed };
+}
+
+export function scheduledSpecialType({ resolvedShots = 0, previousWasSpecial = false } = {}, config = ENDURANCE_CONFIG) {
+  if (previousWasSpecial) return null;
   const shots = Math.max(0, Math.floor(Number(resolvedShots) || 0));
-  if (previousWasSpecial || Number(round) < config.firstSpecialRound) return null;
-  if (shots < config.specialEveryResolvedShots * 2 || shots % config.specialEveryResolvedShots !== 0) return null;
+  const first = Math.max(1, Math.floor(Number(config.firstSpecialShot) || 12));
+  const interval = Math.max(1, Math.floor(Number(config.specialInterval) || 8));
+  if (shots < first) return null;
+  const offset = shots - first;
+  if (offset % interval !== 0) return null;
   const types = ['guide', 'bomb', 'rainbow'];
-  const index = (shots / config.specialEveryResolvedShots) - 2;
-  return types[index % types.length];
+  return types[(offset / interval) % types.length];
+}
+
+export function specialShotLabel(type) {
+  if (type === 'bomb') return 'BOMB — niszczy obszar';
+  if (type === 'rainbow') return 'RAINBOW — dopasowuje kolor';
+  if (type === 'guide') return 'GUIDE — pokazuje pełną trajektorię';
+  return '';
 }
 
 export function generateEnduranceRow({ geometry, targetRow = 0, palette = [], rng = Math.random } = {}) {
@@ -126,21 +92,21 @@ export function updateEnduranceRecords(records = {}, result = {}) {
   const previous = {
     bestScore: Math.max(0, Number(records.bestScore) || 0),
     bestTimeMs: Math.max(0, Number(records.bestTimeMs) || 0),
-    bestRound: Math.max(0, Math.floor(Number(records.bestRound) || 0)),
+    bestCombo: Math.max(0, Math.floor(Number(records.bestCombo) || 0)),
   };
   const score = Math.max(0, Number(result.score) || 0);
   const elapsedMs = Math.max(0, Number(result.elapsedMs) || 0);
-  const round = Math.max(0, Math.floor(Number(result.round) || 0));
+  const bestCombo = Math.max(0, Math.floor(Number(result.bestCombo) || 0));
   return {
     records: {
       bestScore: Math.max(previous.bestScore, score),
       bestTimeMs: Math.max(previous.bestTimeMs, elapsedMs),
-      bestRound: Math.max(previous.bestRound, round),
+      bestCombo: Math.max(previous.bestCombo, bestCombo),
     },
     newRecords: {
       score: score > previous.bestScore,
       time: elapsedMs > previous.bestTimeMs,
-      round: round > previous.bestRound,
+      combo: bestCombo > previous.bestCombo,
     },
   };
 }
