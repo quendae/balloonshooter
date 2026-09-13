@@ -23,7 +23,7 @@ export function normalizeProgress(raw) {
     endurance: {
       bestScore: Math.max(0, Number(source.endurance?.bestScore) || 0),
       bestTimeMs: Math.max(0, Number(source.endurance?.bestTimeMs) || 0),
-      bestRound: Math.max(0, Math.floor(Number(source.endurance?.bestRound) || 0)),
+      bestCombo: Math.max(0, Math.floor(Number(source.endurance?.bestCombo) || 0)),
     },
     settings: {
       sound: source.settings?.sound !== false,
