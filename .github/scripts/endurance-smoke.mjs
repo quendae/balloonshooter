@@ -41,6 +41,14 @@ async function runtimeSnapshot(page) {
     const snapshot = game.getSnapshot();
     return {
       ...snapshot,
+      weather: snapshot.weather,
+      weatherProgress: snapshot.weatherTransitionProgress,
+      aimAngle: game.aimAngle,
+      projectile: game.projectile ? {
+        weatherType: game.projectile.weatherType,
+        collisionScale: game.projectile.collisionScale,
+        color: game.projectile.color,
+      } : null,
       board: {
         evenCols: game.B.evenCols,
         oddCols: game.B.oddCols,
@@ -52,6 +60,113 @@ async function runtimeSnapshot(page) {
       },
       atmosphere: game.renderState().enduranceAtmosphere,
     };
+  });
+}
+
+async function verifyShallowAim(page) {
+  const box = await page.locator('#gameCanvas').boundingBox();
+  assert(box, 'Endurance canvas should have a measurable bounding box');
+  const toClient = (x, y) => ({ x: box.x + x / 240 * box.width, y: box.y + y / 320 * box.height });
+
+  const right = toClient(239, 284);
+  await page.mouse.move(right.x, right.y);
+  let aim = (await runtimeSnapshot(page)).aimAngle;
+  assert(Math.abs(aim - (-.18)) < .03, `right shallow aim ${aim}`);
+
+  const left = toClient(1, 284);
+  await page.mouse.move(left.x, left.y);
+  aim = (await runtimeSnapshot(page)).aimAngle;
+  assert(Math.abs(aim - (-Math.PI + .18)) < .03, `left shallow aim ${aim}`);
+  await page.screenshot({ path: 'artifacts/endurance-weather-shallow-aim.png', fullPage: true });
+}
+
+async function verifyWeatherStates(page) {
+  const weatherCases = [
+    ['clear', '☀ CLEAR', 'artifacts/endurance-weather-clear.png'],
+    ['rain', '☂ RAIN', 'artifacts/endurance-weather-rain.png'],
+    ['snow', '❄ SNOW', 'artifacts/endurance-weather-snow.png'],
+    ['frost', '❄ FROST', 'artifacts/endurance-weather-frost.png'],
+  ];
+
+  for (const [target, badgeText, screenshotPath] of weatherCases) {
+    await page.evaluate((nextWeather) => {
+      const game = window.__enduranceGame;
+      const previous = nextWeather === 'clear' ? 'rain' : game.weatherState.current;
+      game.weatherState = {
+        ...game.weatherState,
+        previous,
+        current: nextWeather,
+        transitionStartedMs: game.elapsedMs,
+        transitionDurationMs: 2200,
+      };
+      game.emitState();
+    }, target);
+    await page.waitForFunction((expected) => document.querySelector('#enduranceWeatherBadge')?.dataset.weather === expected, target);
+    assert(await page.locator('#enduranceWeatherBadge').isVisible(), `${target} weather badge should be visible`);
+    assert((await page.locator('#enduranceWeatherBadge').textContent()) === badgeText, `${target} weather badge text mismatch`);
+
+    await page.evaluate(() => {
+      const game = window.__enduranceGame;
+      game.elapsedMs += 1100;
+      game.emitState();
+    });
+    const state = await runtimeSnapshot(page);
+    assert(state.weather === target, `${target} weather should stay selected during visual probe`);
+    assert(state.weatherProgress > 0 && state.weatherProgress < 1, `${target} weather crossfade should be mid-transition, got ${state.weatherProgress}`);
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+  }
+}
+
+async function verifyFrostProjectile(page) {
+  await page.evaluate(() => {
+    const game = window.__enduranceGame;
+    game.weatherState = {
+      ...game.weatherState,
+      previous: 'snow',
+      current: 'frost',
+      transitionStartedMs: game.elapsedMs,
+      transitionDurationMs: 2200,
+    };
+    game.callbacks.onEnduranceWeather?.({ from: 'snow', to: 'frost', callout: 'MRÓZ — mniejsza kolizja pocisków' });
+    game.queue = [{ type: 'normal', color: 2 }, ...game.queue.slice(1)];
+    game.projectile = null;
+    game.setPaused(false);
+    game.shoot();
+    game.setPaused(true);
+  });
+  await page.waitForFunction(() => document.querySelector('.combo-callout')?.textContent?.includes('MRÓZ'));
+  let frostShot = await runtimeSnapshot(page);
+  assert(frostShot.projectile?.color === 2, 'Frost projectile should preserve queued color');
+  assert(frostShot.projectile?.weatherType === 'frost', 'Frost projectile should snapshot weather type');
+  assert(Math.abs(frostShot.projectile?.collisionScale - .82) < 1e-9, `Frost projectile scale ${frostShot.projectile?.collisionScale}`);
+
+  await page.evaluate(() => {
+    const game = window.__enduranceGame;
+    game.weatherState = { ...game.weatherState, previous: 'frost', current: 'clear' };
+    game.emitState();
+  });
+  frostShot = await runtimeSnapshot(page);
+  assert(Math.abs(frostShot.projectile?.collisionScale - .82) < 1e-9, 'mid-flight thaw changed projectile scale');
+
+  const gap = await page.evaluate(() => {
+    const game = window.__enduranceGame;
+    const original = game.grid;
+    const B = game.B;
+    const key = B.key(0, 4);
+    game.grid = new Map([[key, 1]]);
+    const x = B.colX(0, 4) + 18;
+    const y = B.rowY(4);
+    const result = { normal: game.collides(x, y, 1), frost: game.collides(x, y, .82) };
+    game.grid = original;
+    return result;
+  });
+  assert(gap.normal === true && gap.frost === false, `Frost collision threshold mismatch ${JSON.stringify(gap)}`);
+
+  await page.evaluate(() => {
+    const game = window.__enduranceGame;
+    game.projectile = null;
+    game.setPaused(true);
+    game.emitState();
   });
 }
 
@@ -68,6 +183,8 @@ async function verifyDesktop(browser) {
   assert((await page.locator('#statTwoLabel').textContent()) === 'Kolory', 'Endurance HUD should show color count');
   assert((await page.locator('#statThreeLabel').textContent()) === '', 'Endurance HUD should not expose a third run stat');
   assert((await page.locator('#dropValue').textContent()) === '4', 'Endurance should start with four colors');
+  assert(await page.locator('#enduranceWeatherBadge').isVisible(), 'Endurance weather badge should be visible');
+  assert((await page.locator('#enduranceWeatherBadge').getAttribute('data-weather')) === 'clear', 'Endurance should start in clear weather');
 
   const start = await runtimeSnapshot(page);
   assert(start.board.evenCols === 11 && start.board.oddCols === 10, `expected fixed 11/10 geometry, got ${start.board.evenCols}/${start.board.oddCols}`);
@@ -75,6 +192,7 @@ async function verifyDesktop(browser) {
   assert(start.board.topCount === 11, 'initial top pressure row should be full');
   assert(start.board.radius < 12, 'Endurance orb radius should be smaller than campaign base radius');
   await page.screenshot({ path: 'artifacts/endurance-v2-start.png', fullPage: true });
+  await verifyShallowAim(page);
 
   const beforeMiss = await runtimeSnapshot(page);
   await page.evaluate(() => {
@@ -138,6 +256,9 @@ async function verifyDesktop(browser) {
     const game = window.__enduranceGame;
     game.elapsedMs = 400_000;
     game.advancePaletteStage();
+    // Synthetic time jumps are UI probes. Freeze RAF so the weather scheduler
+    // cannot consume 400s of history and overwrite the callout under test.
+    game.setPaused(true);
     game.emitState();
   });
   assert((await runtimeSnapshot(page)).colorCount === 6, 'Endurance difficulty must stay capped at six colors after 120s');
@@ -161,6 +282,9 @@ async function verifyDesktop(browser) {
     await page.waitForTimeout(80);
     await page.screenshot({ path, fullPage: true });
   }
+
+  await verifyWeatherStates(page);
+  await verifyFrostProjectile(page);
 
   await page.evaluate(() => {
     const game = window.__enduranceGame;
@@ -203,6 +327,7 @@ async function verifyMobile(browser) {
   assert((await page.locator('#statOneLabel').textContent()) === 'Czas', 'mobile Endurance HUD should preserve time label');
   assert((await page.locator('#statTwoLabel').textContent()) === 'Kolory', 'mobile Endurance HUD should preserve color label');
   assert((await page.locator('#statThreeLabel').textContent()) === '', 'mobile Endurance HUD should not expose removed round stats');
+  assert(await page.locator('#enduranceWeatherBadge').isVisible(), 'mobile weather badge should be visible');
   const state = await runtimeSnapshot(page);
   assert(state.board.evenCols === 11 && state.board.oddCols === 10, 'mobile Endurance should use the same fixed 11/10 board');
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
@@ -216,7 +341,7 @@ const browser = await chromium.launch({ headless: true });
 try {
   await verifyDesktop(browser);
   await verifyMobile(browser);
-  console.log('OK: Endurance v2 fixed geometry, miss pressure, palette stages, specials, loss/retry and mobile layout passed');
+  console.log('OK: Endurance v2 geometry, pressure, palette stages, specials, shallow aim, dynamic weather, Frost collision, loss/retry and mobile layout passed');
 } finally {
   await browser.close();
 }
