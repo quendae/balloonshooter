@@ -115,6 +115,31 @@
   color: #c24e3f;
 }
 
+.game-screen[data-mode="endurance"] .combo-callout.is-special-ready {
+  top: auto;
+  bottom: 16px;
+  width: max-content;
+  max-width: 88%;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, .66);
+  border-radius: 999px;
+  background: rgba(17, 39, 55, .82);
+  pointer-events: none;
+  font-size: clamp(12px, 2.5vw, 18px);
+  line-height: 1.05;
+  letter-spacing: -.02em;
+  text-align: center;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, .22);
+}
+
+.game-screen[data-mode="endurance"] .combo-callout.is-endurance-stage {
+  top: 23%;
+  pointer-events: none;
+  color: #fff3b0;
+  font-size: clamp(18px, 4vw, 30px);
+  letter-spacing: -.03em;
+}
+
 .game-screen[data-mode="endurance"][data-palette-stage="1"] .playfield-frame {
   box-shadow: 8px 10px 0 rgba(23, 40, 58, .18), 0 24px 64px rgba(183, 111, 53, .2);
 }
@@ -147,6 +172,12 @@
   .endurance-records dd {
     font-size: 15px;
   }
+
+  .game-screen[data-mode="endurance"] .combo-callout.is-special-ready {
+    bottom: 13px;
+    max-width: 92%;
+    white-space: normal;
+  }
 }
 
 @media (max-width: 410px) {
@@ -174,5 +205,9 @@
 
   #enduranceButton:hover {
     transform: none;
+  }
+
+  .game-screen[data-mode="endurance"] .combo-callout.is-visible {
+    animation-duration: .01ms;
   }
 }
