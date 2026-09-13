@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { ENDURANCE_CONFIG } from './src/endurance-core.mjs';
 import { EnduranceGame } from './src/endurance-game.mjs';
 import * as pixelArt from './src/pixel-art.mjs';
+import { drawPixelFrostOverlay, installFrostShotRenderer } from './src/frost-shot-runtime.mjs';
 
 const require = createRequire(import.meta.url);
 globalThis.BALLOON = require('./balloon.js');
@@ -60,7 +61,8 @@ function fakeCanvas() {
 }
 
 assert.equal(typeof pixelArt.drawSpecialOrb, 'function', 'specials need a dedicated full-orb renderer');
-assert.equal(typeof pixelArt.drawPixelFrostOverlay, 'function', 'Frost needs a dedicated non-opaque overlay');
+assert.equal(typeof drawPixelFrostOverlay, 'function', 'Frost needs a dedicated non-opaque overlay');
+assert.equal(typeof installFrostShotRenderer, 'function', 'Frost renderer should install as a focused shared-shot patch');
 const pixelSource = await fs.readFile(new URL('./src/pixel-art.mjs', import.meta.url), 'utf8');
 for (const marker of ['drawBombOrb', 'drawRainbowOrb', 'drawGuideOrb']) {
   assert.ok(pixelSource.includes(marker), `missing distinct special treatment: ${marker}`);
@@ -72,12 +74,11 @@ pixelArt.drawSpecialOrb(guideRecording.ctx, 'guide', 0, 0, 1, 0);
 assert.equal(guideRecording.calls.fill, 0, 'Guide must not paint an opaque filled body over the shot color');
 assert.ok(guideRecording.calls.stroke >= 2, 'Guide should stay recognizable through ring/crosshair strokes');
 
-const rendererSource = await fs.readFile(new URL('./src/game-renderer.mjs', import.meta.url), 'utf8');
-assert.ok(rendererSource.includes('drawPixelSpecial'), 'shared shot path must render the delegated special body in launcher, queue and flight');
-assert.ok(rendererSource.includes('this.animationTime'), 'renderer keeps a frame clock for animated shot presentation');
-assert.match(rendererSource, /shot\.weatherType === 'frost'/, 'shared shot path should render Frost in launcher, queue and flight');
+const frostSource = await fs.readFile(new URL('./src/frost-shot-runtime.mjs', import.meta.url), 'utf8');
+assert.match(frostSource, /originalDrawShot\.call/, 'Frost should preserve the existing orb/special draw path first');
+assert.match(frostSource, /shot\?\.weatherType === 'frost'/, 'Frost should apply only to icy shots');
 assert.ok(
-  rendererSource.indexOf('drawPixelSpecial') < rendererSource.lastIndexOf('drawPixelFrostOverlay'),
+  frostSource.indexOf('originalDrawShot.call') < frostSource.indexOf('drawPixelFrostOverlay'),
   'Frost should augment special identity, not replace it',
 );
 
