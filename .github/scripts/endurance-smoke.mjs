@@ -68,12 +68,15 @@ async function verifyShallowAim(page) {
   assert(box, 'Endurance canvas should have a measurable bounding box');
   const toClient = (x, y) => ({ x: box.x + x / 240 * box.width, y: box.y + y / 320 * box.height });
 
-  const right = toClient(239, 284);
+  // Keep the probe above the DOM HUD overlay while still aiming shallow enough
+  // to hit the existing 0.18 rad clamp. At y=284 the pointer lands under the
+  // bottom HUD in the real layout, so the canvas correctly receives no move.
+  const right = toClient(239, 270);
   await page.mouse.move(right.x, right.y);
   let aim = (await runtimeSnapshot(page)).aimAngle;
   assert(Math.abs(aim - (-.18)) < .03, `right shallow aim ${aim}`);
 
-  const left = toClient(1, 284);
+  const left = toClient(1, 270);
   await page.mouse.move(left.x, left.y);
   aim = (await runtimeSnapshot(page)).aimAngle;
   assert(Math.abs(aim - (-Math.PI + .18)) < .03, `left shallow aim ${aim}`);
