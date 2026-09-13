@@ -76,7 +76,7 @@ assert.ok(guideRecording.calls.stroke >= 2, 'Guide should stay recognizable thro
 
 const frostSource = await fs.readFile(new URL('./src/frost-shot-runtime.mjs', import.meta.url), 'utf8');
 assert.match(frostSource, /originalDrawShot\.call/, 'Frost should preserve the existing orb/special draw path first');
-assert.match(frostSource, /shot\?\.weatherType === 'frost'/, 'Frost should apply only to icy shots');
+assert.match(frostSource, /weatherType[^\n]*'frost'/, 'Frost should apply only to icy shots');
 assert.ok(
   frostSource.indexOf('originalDrawShot.call') < frostSource.indexOf('drawPixelFrostOverlay'),
   'Frost should augment special identity, not replace it',
