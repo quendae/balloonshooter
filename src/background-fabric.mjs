@@ -42,9 +42,14 @@ function cleanWeather(weather) {
   return String(weather || 'clear').toLowerCase();
 }
 
+function backgroundVariant(level = {}) {
+  return level?.backgroundVariant === 'endurance' ? 'endurance' : 'default';
+}
+
 export function backgroundThemeKey(level = {}) {
   const atmosphere = level?.atmosphere || {};
   return [
+    backgroundVariant(level),
     cleanWorld(level?.world),
     cleanTime(atmosphere.timeOfDay),
     cleanWeather(atmosphere.weather),
@@ -213,13 +218,33 @@ function paletteFor(level = {}) {
   const world = cleanWorld(level?.world);
   const timeOfDay = cleanTime(level?.atmosphere?.timeOfDay);
   const weather = cleanWeather(level?.atmosphere?.weather);
+  const variant = backgroundVariant(level);
   const palette = { ...WORLD_PALETTES[world], sky: [...DAY_PALETTES[timeOfDay]] };
   if (world === 'storm' || ['storm', 'heavy-rain', 'overcast'].includes(weather)) {
     palette.sky = palette.sky.map((color, index) => ['#263c55', '#40586a', '#5d6f78', '#7b8380'][index] || color);
     palette.cloud = '#78858c';
     palette.cloudShadow = '#3e4e59';
   }
-  return { world, timeOfDay, weather, palette };
+  if (variant === 'endurance' && weather === 'rain') {
+    palette.sky = ['#335c79', '#4f7891', '#6f94a5', '#8eabb5'];
+    palette.cloud = '#a7b7bb';
+    palette.cloudShadow = '#667a83';
+  }
+  if (variant === 'endurance' && weather === 'snow') {
+    palette.sky = ['#547b99', '#7197ad', '#9db9c2', '#cbd5cf'];
+    palette.near = '#93a99d';
+    palette.ground = '#b8c4bb';
+    palette.cloud = '#edf2ed';
+    palette.cloudShadow = '#aab8b9';
+  }
+  if (variant === 'endurance' && weather === 'frost') {
+    palette.sky = ['#456f94', '#6291ad', '#91b5c1', '#c5d9d5'];
+    palette.near = '#7fa49a';
+    palette.ground = '#76938c';
+    palette.cloud = '#e5f1ef';
+    palette.cloudShadow = '#9eb7ba';
+  }
+  return { world, timeOfDay, weather, variant, palette };
 }
 
 function fabricAvailable(F) {
