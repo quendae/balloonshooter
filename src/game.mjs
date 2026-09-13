@@ -13,7 +13,9 @@ import {
 } from './sky-rescue-core.mjs';
 import {
   SHOT_SPEED,
+  aimInputMaxY,
   clampAimAngle,
+  projectileCollidesGrid,
   shortTrajectoryPreview,
   shouldShowTrajectory,
   stepProjectile,
@@ -31,7 +33,6 @@ import { resolveShotOnGrid } from './shot-resolution.mjs';
 import { GameRenderer } from './game-renderer.mjs';
 import { drawGlobalWind } from './wind-renderer.mjs';
 
-const MIN_AIM_Y = 242;
 const FX_COLORS = ['#000', '#ff4455', '#a05cf0', '#ffd93d', '#4cc94c', '#4da3ff', '#ff6fb3'];
 
 export class SkyRescueGame {
@@ -218,13 +219,13 @@ export class SkyRescueGame {
   onPointerMove(event) {
     if (this.status !== 'playing') return;
     const p = toLogicalPoint(event.clientX, event.clientY, this.canvas.getBoundingClientRect(), this.B.LW, this.B.LH);
-    if (p.y < MIN_AIM_Y) this.setAim(p.x, p.y);
+    if (p.y <= aimInputMaxY(this.B.LAUNCH_Y)) this.setAim(p.x, p.y);
   }
 
   onPointerDown(event) {
     if (this.status !== 'playing' || this.paused) return;
     const p = toLogicalPoint(event.clientX, event.clientY, this.canvas.getBoundingClientRect(), this.B.LW, this.B.LH);
-    if (p.y >= MIN_AIM_Y) return;
+    if (p.y > aimInputMaxY(this.B.LAUNCH_Y)) return;
     event.preventDefault();
     this.setAim(p.x, p.y);
     this.canvas.focus({ preventScroll: true });
@@ -251,13 +252,22 @@ export class SkyRescueGame {
     return this.currentWind || null;
   }
 
+  projectileMetadataForShot() {
+    return { collisionScale: 1 };
+  }
+
+  collisionScaleForAimShot(shot) {
+    return Math.max(.1, Number(shot?.collisionScale) || 1);
+  }
+
   shoot() {
     if (this.projectile || this.status !== 'playing' || this.paused || !this.queue.length) return;
     const shot = this.queue.shift();
     const velocity = velocityFromAngle(this.aimAngle, SHOT_SPEED);
     const activeWind = this.currentWindForAim();
     const wind = { ...(activeWind || { forceX: 0, forceY: 0 }) };
-    this.projectile = { ...shot, x: this.B.LW / 2, y: this.B.LAUNCH_Y, ...velocity, wind };
+    const metadata = this.projectileMetadataForShot(shot) || {};
+    this.projectile = { ...shot, ...metadata, x: this.B.LW / 2, y: this.B.LAUNCH_Y, ...velocity, wind };
     this.fillQueue();
     this.callbacks.onShot?.(shot);
     this.emitState();
@@ -281,11 +291,12 @@ export class SkyRescueGame {
     const velocity = velocityFromAngle(this.aimAngle, SHOT_SPEED);
     const wind = this.currentWindForAim();
     const bounds = { minX: this.B.RAD, maxX: this.B.LW - this.B.RAD };
+    const aimCollisionScale = this.collisionScaleForAimShot(this.queue[0]);
     const trajectory = showTrajectory ? trajectoryPoints({
       x: this.B.LW / 2, y: this.B.LAUNCH_Y, ...velocity,
       bounds,
       ceilingY,
-      collides: (x, y) => this.collides(x, y),
+      collides: (x, y) => this.collides(x, y, aimCollisionScale),
       wind,
     }) : [];
     const shortAim = readyToAim && !showTrajectory ? shortTrajectoryPreview({
@@ -294,7 +305,7 @@ export class SkyRescueGame {
       ...velocity,
       bounds,
       ceilingY,
-      collides: (x, y) => this.collides(x, y),
+      collides: (x, y) => this.collides(x, y, aimCollisionScale),
       wind,
       maxDistance: 40,
     }) : [];
@@ -325,15 +336,12 @@ export class SkyRescueGame {
     const hitWall = this.projectile.x === bounds.minX || this.projectile.x === bounds.maxX;
     if (hitWall && Math.sign(beforeVx) !== Math.sign(this.projectile.vx)) this.callbacks.onBounce?.();
     const ceilingY = this.B.rowY(this.ceilRow) - this.B.RAD * .85;
-    if (this.projectile.y <= ceilingY || this.collides(this.projectile.x, this.projectile.y)) this.land();
+    const collisionScale = Math.max(.1, Number(this.projectile.collisionScale) || 1);
+    if (this.projectile.y <= ceilingY || this.collides(this.projectile.x, this.projectile.y, collisionScale)) this.land();
   }
 
-  collides(x, y) {
-    for (const key of this.grid.keys()) {
-      const [c, r] = this.B.split(key);
-      if (this.B.dist(x, y, this.B.colX(c, r), this.B.rowY(r)) <= this.B.RAD * 1.86) return true;
-    }
-    return false;
+  collides(x, y, collisionScale = 1) {
+    return projectileCollidesGrid({ grid: this.grid, geometry: this.B, x, y, collisionScale });
   }
 
   land() {
@@ -437,7 +445,6 @@ export class SkyRescueGame {
     }
     this.flashStrength = Math.max(this.flashStrength, .34);
     this.flashTime = Math.max(this.flashTime, .16);
-
     for (let i = 0; i < 14; i += 1) {
       const angle = this.rng() * Math.PI * 2;
       const speed = 32 + this.rng() * 62;
