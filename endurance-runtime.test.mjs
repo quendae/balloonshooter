@@ -107,6 +107,34 @@ assert.equal(paletteGame.getSnapshot().colorCount, 6);
 paletteGame.elapsedMs = 500_000;
 assert.equal(paletteGame.getSnapshot().colorCount, 6, 'palette never grows beyond six colors');
 
+const weatherEvents = [];
+const weatherGame = new EnduranceGame(fakeCanvas(), {
+  onEnduranceWeather: (event) => weatherEvents.push(event),
+}, { config: ENDURANCE_CONFIG });
+weatherGame.start('weather-seed');
+const weatherStart = weatherGame.getSnapshot();
+assert.equal(weatherStart.weather, 'clear');
+assert.ok(weatherStart.weatherPhaseEndsMs >= 25_000 && weatherStart.weatherPhaseEndsMs <= 35_000);
+weatherGame.elapsedMs = weatherStart.weatherPhaseEndsMs - 1;
+weatherGame.update(.001);
+assert.equal(weatherEvents.length, 1);
+assert.notEqual(weatherGame.getSnapshot().weather, 'clear');
+weatherGame.setPaused(true);
+const pausedWeather = weatherGame.getSnapshot();
+weatherGame.update(30);
+assert.equal(weatherGame.getSnapshot().weatherPhaseEndsMs, pausedWeather.weatherPhaseEndsMs);
+weatherGame.setPaused(false);
+weatherGame.weatherState.current = 'frost';
+const frozenMeta = weatherGame.projectileMetadataForShot({ type: 'normal', color: 2 });
+assert.deepEqual(frozenMeta, { weatherType: 'frost', collisionScale: .82 });
+weatherGame.queue = [{ type: 'guide', color: 3 }, ...weatherGame.queue.slice(1)];
+assert.equal(weatherGame.collisionScaleForAimShot(weatherGame.queue[0]), .82);
+weatherGame.shoot();
+assert.equal(weatherGame.projectile.weatherType, 'frost');
+assert.equal(weatherGame.projectile.collisionScale, .82);
+weatherGame.weatherState.current = 'clear';
+assert.equal(weatherGame.projectile.collisionScale, .82, 'mid-flight thaw must not mutate projectile collision scale');
+
 const clearGame = new EnduranceGame(fakeCanvas(), {}, { config: ENDURANCE_CONFIG });
 clearGame.start('clear-seed');
 const beforeClear = clearGame.score;
