@@ -30,6 +30,15 @@ function fakeContext() {
   });
 }
 
+function recordingContext() {
+  const calls = { fill: 0, stroke: 0, fillRect: 0 };
+  const ctx = fakeContext();
+  ctx.fill = () => { calls.fill += 1; };
+  ctx.stroke = () => { calls.stroke += 1; };
+  ctx.fillRect = () => { calls.fillRect += 1; };
+  return { ctx, calls };
+}
+
 const spriteContext = fakeContext();
 globalThis.document = {
   createElement: () => ({ width: 0, height: 0, getContext: () => spriteContext }),
@@ -56,6 +65,11 @@ for (const marker of ['drawBombOrb', 'drawRainbowOrb', 'drawGuideOrb']) {
   assert.ok(pixelSource.includes(marker), `missing distinct special treatment: ${marker}`);
 }
 assert.ok(pixelSource.includes('drawSpecialOrb(ctx, type, x, y, 1, time)'), 'legacy special hook should delegate to the full-orb renderer');
+
+const guideRecording = recordingContext();
+pixelArt.drawSpecialOrb(guideRecording.ctx, 'guide', 0, 0, 1, 0);
+assert.equal(guideRecording.calls.fill, 0, 'Guide must not paint an opaque filled body over the shot color');
+assert.ok(guideRecording.calls.stroke >= 2, 'Guide should stay recognizable through ring/crosshair strokes');
 
 const rendererSource = await fs.readFile(new URL('./src/game-renderer.mjs', import.meta.url), 'utf8');
 assert.ok(rendererSource.includes('drawPixelSpecial'), 'shared shot path must render the delegated special body in launcher, queue and flight');
@@ -88,4 +102,4 @@ game.queue = [{ type: 'guide', color: 2 }];
 assert.equal(game.maybeAnnounceActiveSpecial(), true);
 assert.deepEqual(events.at(-1), { type: 'guide', label: 'GUIDE — pokazuje pełną trajektorię' });
 
-console.log('✓ Endurance special readability and callout cooldown');
+console.log('✓ Endurance special readability, Guide color visibility and callout cooldown');
