@@ -28,6 +28,29 @@ async function installGameProbe(page) {
   });
 }
 
+async function installPointerEventProbe(page) {
+  await page.locator('#gameCanvas').evaluate((canvas) => {
+    window.__gestureEvents = [];
+    const record = (event) => {
+      const state = window.__gestureGame?.renderState?.();
+      window.__gestureEvents.push({
+        type: event.type,
+        pointerId: event.pointerId,
+        pointerType: event.pointerType,
+        isPrimary: event.isPrimary,
+        buttons: event.buttons,
+        defaultPrevented: event.defaultPrevented,
+        hasGuide: Boolean(state?.aimSegment) || Boolean(state?.trajectory?.length),
+        hasProjectile: Boolean(window.__gestureGame?.projectile),
+        shots: window.__gestureShots || 0,
+      });
+    };
+    for (const type of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'lostpointercapture']) {
+      canvas.addEventListener(type, record);
+    }
+  });
+}
+
 async function canvasPoint(page, logicalX, logicalY) {
   const box = await page.locator('#gameCanvas').boundingBox();
   if (!box) throw new Error('game canvas has no bounding box');
@@ -131,6 +154,7 @@ async function verifyMobile(browser) {
   await page.locator('#enduranceButton').click();
   await page.locator('#enduranceStartButton').click();
   await page.waitForFunction(() => Boolean(window.__gestureGame) && document.querySelector('#gameScreen')?.dataset.mode === 'endurance');
+  await installPointerEventProbe(page);
 
   const idle = await page.evaluate(() => {
     const state = window.__gestureGame.renderState();
@@ -171,14 +195,25 @@ async function verifyMobile(browser) {
 
   await page.evaluate(() => { window.__gestureGame.projectile = null; });
   await dispatchPointer(page, 'pointerdown', { pointerId: 12, pointerType: 'touch', logicalX: 64, logicalY: 248 });
+  const secondPress = await page.evaluate(() => {
+    const state = window.__gestureGame.renderState();
+    return Boolean(state.aimSegment) || Boolean(state.trajectory?.length);
+  });
+  assert(secondPress, `second touch pointerdown should enter aiming; events=${JSON.stringify(await page.evaluate(() => window.__gestureEvents))}`);
+
   await dispatchPointer(page, 'pointercancel', { pointerId: 12, pointerType: 'touch', logicalX: 64, logicalY: 248 });
   assert(await shotCount(page) === 1, 'touch pointercancel must never fire');
 
   const cancelled = await page.evaluate(() => {
     const state = window.__gestureGame.renderState();
-    return Boolean(state.aimSegment) || Boolean(state.trajectory?.length);
+    return {
+      hasGuide: Boolean(state.aimSegment) || Boolean(state.trajectory?.length),
+      events: window.__gestureEvents,
+      touchPoints: navigator.maxTouchPoints,
+      coarse: matchMedia('(pointer: coarse)').matches,
+    };
   });
-  assert(cancelled === false, 'mobile guide should hide again after pointercancel');
+  assert(cancelled.hasGuide === false, `mobile guide should hide again after pointercancel; diagnostics=${JSON.stringify(cancelled)}`);
   assert(errors.length === 0, `mobile pointer gesture console errors: ${errors.join(' | ')}`);
 
   await context.close();
