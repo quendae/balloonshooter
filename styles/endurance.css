@@ -80,7 +80,7 @@
 }
 
 .game-screen[data-mode="endurance"] .playfield-objective {
-  visibility: hidden;
+  display: none;
 }
 
 .game-screen[data-mode="endurance"] .playfield-hud-top .game-title-block strong,
@@ -225,12 +225,14 @@
     font-size: 15px;
   }
 
+  .game-screen[data-mode="endurance"] .playfield-hud-top {
+    grid-template-columns: 32px minmax(0, 1fr) auto 32px;
+  }
+
   .endurance-weather-badge {
     padding: 2px 4px;
     font-size: 9px;
-    max-width: 72px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    max-width: none;
   }
 
   .game-screen[data-mode="endurance"] .combo-callout.is-special-ready {
