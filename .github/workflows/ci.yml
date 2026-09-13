@@ -44,6 +44,8 @@ jobs:
         run: node endurance-style.test.mjs
       - name: Endurance special readability tests
         run: node endurance-specials.test.mjs
+      - name: Endurance balance harness tests
+        run: node endurance-balance.test.mjs
       - name: Wind corridor tests
         run: node wind.test.mjs
       - name: Pixel art contract tests
@@ -85,6 +87,7 @@ jobs:
           node --check src/campaign-ui.mjs
           node --check src/audio.mjs
           node --check src/app.mjs
+          node --check tools/endurance-balance.mjs
 
   browser-smoke:
     runs-on: ubuntu-latest
