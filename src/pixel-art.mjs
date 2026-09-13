@@ -228,22 +228,30 @@ function drawGuideOrb(ctx, x, y, scale = 1, time = 0) {
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(scale, scale);
-  specialCircle(ctx, '#dff5ff', '#376d91', 1.8);
-  ctx.strokeStyle = `rgba(255,255,255,${.65 + pulse * .3})`;
-  ctx.lineWidth = 1.5;
+
+  ctx.strokeStyle = `rgba(238,250,255,${.72 + pulse * .24})`;
+  ctx.lineWidth = 1.35;
   ctx.beginPath();
-  ctx.arc(0, 0, 7.2 + pulse, 0, Math.PI * 2);
+  ctx.arc(0, 0, 12.7 + pulse * .55, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.strokeStyle = '#164d72';
-  ctx.lineWidth = 1.2;
+
+  ctx.strokeStyle = 'rgba(22,77,114,.92)';
+  ctx.lineWidth = 1.15;
   ctx.beginPath();
-  ctx.moveTo(-10, 0); ctx.lineTo(-4, 0);
-  ctx.moveTo(10, 0); ctx.lineTo(4, 0);
-  ctx.moveTo(0, -10); ctx.lineTo(0, -4);
-  ctx.moveTo(0, 10); ctx.lineTo(0, 4);
+  ctx.arc(0, 0, 9.1, 0, Math.PI * 2);
   ctx.stroke();
+
+  ctx.strokeStyle = '#f5fcff';
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(-14, 0); ctx.lineTo(-9.5, 0);
+  ctx.moveTo(14, 0); ctx.lineTo(9.5, 0);
+  ctx.moveTo(0, -14); ctx.lineTo(0, -9.5);
+  ctx.moveTo(0, 14); ctx.lineTo(0, 9.5);
+  ctx.stroke();
+
   ctx.fillStyle = '#164d72';
-  ctx.fillRect(-1.2, -1.2, 2.4, 2.4);
+  ctx.fillRect(-1, -1, 2, 2);
   ctx.restore();
 }
 
