@@ -89,9 +89,10 @@ assert.equal(unavailable.draw(ctx, level, 240, 320), false, 'renderer must fall 
 
 const indexSource = await fs.readFile(new URL('./index.html', import.meta.url), 'utf8');
 assert.match(indexSource, /fabric@5\.3\.0\/dist\/fabric\.min\.js/, 'index should load the pinned Fabric.js browser build');
+assert.match(indexSource, /background-fabric-runtime\.mjs/, 'Fabric background installer should run before the app bootstrap');
 
-const rendererSource = await fs.readFile(new URL('./src/game-renderer.mjs', import.meta.url), 'utf8');
-assert.match(rendererSource, /FabricBackgroundCache/, 'shared renderer should own the Fabric background cache');
-assert.match(rendererSource, /fabricBackgrounds\.draw/, 'shared renderer should prefer cached Fabric pixel backgrounds');
+const runtimeSource = await fs.readFile(new URL('./src/background-fabric-runtime.mjs', import.meta.url), 'utf8');
+assert.match(runtimeSource, /GameRenderer\.prototype\.drawSky/, 'runtime installer should replace only the shared sky renderer');
+assert.match(runtimeSource, /fabricBackgrounds\.draw/, 'runtime sky renderer should prefer cached Fabric pixel backgrounds');
 
 console.log('✓ Fabric pixel background authoring, cache and runtime integration contract');
