@@ -25,24 +25,18 @@ function gestureState(game) {
   return game[GESTURE];
 }
 
-function removeFinishListeners(game) {
-  const listeners = game[LISTENERS];
-  if (!listeners) return;
-  const { pointerId, up, cancel } = listeners;
-  game.canvas.removeEventListener('pointerup', up);
-  game.canvas.removeEventListener('pointercancel', cancel);
-  globalThis.removeEventListener?.('pointerup', up);
-  globalThis.removeEventListener?.('pointercancel', cancel);
+function releaseCapture(game, pointerId) {
+  if (pointerId === null || pointerId === undefined) return;
   try {
     if (game.canvas.hasPointerCapture?.(pointerId)) game.canvas.releasePointerCapture(pointerId);
   } catch (_) {
     // Synthetic browser tests and older engines may not expose an active capture.
   }
-  game[LISTENERS] = null;
 }
 
 function resetGesture(game) {
-  removeFinishListeners(game);
+  const current = gestureState(game);
+  releaseCapture(game, current.pointerId);
   game[GESTURE] = createPointerShotGesture();
 }
 
@@ -66,9 +60,30 @@ function finishGesture(game, event, cancelled) {
   if (!cancelled && game.status === 'playing' && !game.paused) aimFromPointer(game, event);
   const result = endPointerShotGesture(current, event.pointerId, { cancelled });
   game[GESTURE] = result.state;
-  removeFinishListeners(game);
+  releaseCapture(game, event.pointerId);
 
   if (result.shouldShoot && game.status === 'playing' && !game.paused) game.shoot();
+}
+
+function ensureFinishListeners(game) {
+  if (game[LISTENERS]) return;
+  const up = (event) => finishGesture(game, event, false);
+  const cancel = (event) => finishGesture(game, event, true);
+  game[LISTENERS] = { up, cancel };
+  game.canvas.addEventListener('pointerup', up);
+  game.canvas.addEventListener('pointercancel', cancel);
+  globalThis.addEventListener?.('pointerup', up);
+  globalThis.addEventListener?.('pointercancel', cancel);
+}
+
+function removeFinishListeners(game) {
+  const listeners = game[LISTENERS];
+  if (!listeners) return;
+  game.canvas.removeEventListener('pointerup', listeners.up);
+  game.canvas.removeEventListener('pointercancel', listeners.cancel);
+  globalThis.removeEventListener?.('pointerup', listeners.up);
+  globalThis.removeEventListener?.('pointercancel', listeners.cancel);
+  game[LISTENERS] = null;
 }
 
 export function applyHoldToAimPatch(GameClass = SkyRescueGame) {
@@ -84,6 +99,7 @@ export function applyHoldToAimPatch(GameClass = SkyRescueGame) {
 
   proto.start = function holdToAimStart(...args) {
     resetGesture(this);
+    ensureFinishListeners(this);
     this.canvas.setAttribute(
       'aria-label',
       'Plansza Sky Rescue. Przytrzymaj i przeciągnij, aby celować; puść, aby strzelić. Klawiatura: strzałki i spacja.',
@@ -93,6 +109,7 @@ export function applyHoldToAimPatch(GameClass = SkyRescueGame) {
 
   proto.destroy = function holdToAimDestroy(...args) {
     resetGesture(this);
+    removeFinishListeners(this);
     return originalDestroy.apply(this, args);
   };
 
@@ -123,21 +140,13 @@ export function applyHoldToAimPatch(GameClass = SkyRescueGame) {
 
     event.preventDefault();
     this.canvas.focus({ preventScroll: true });
+    ensureFinishListeners(this);
     this[GESTURE] = beginPointerShotGesture(gestureState(this), event.pointerId, event.pointerType || 'mouse');
-
-    const up = (finishEvent) => finishGesture(this, finishEvent, false);
-    const cancel = (finishEvent) => finishGesture(this, finishEvent, true);
-    this[LISTENERS] = { pointerId: event.pointerId, up, cancel };
-
-    this.canvas.addEventListener('pointerup', up);
-    this.canvas.addEventListener('pointercancel', cancel);
-    globalThis.addEventListener?.('pointerup', up);
-    globalThis.addEventListener?.('pointercancel', cancel);
 
     try {
       this.canvas.setPointerCapture?.(event.pointerId);
     } catch (_) {
-      // Pointer capture is an enhancement; window listeners are the fallback.
+      // Pointer capture is an enhancement; persistent window listeners are the fallback.
     }
   };
 
