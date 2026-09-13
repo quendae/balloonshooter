@@ -89,6 +89,25 @@ jobs:
           node --check src/app.mjs
           node --check tools/endurance-balance.mjs
 
+  balance-study:
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[balance-study]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run full Endurance balance study
+        run: node tools/endurance-balance.mjs --runs 250 --seed 1337 --output artifacts/endurance-balance
+      - name: Upload balance reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: endurance-balance-study
+          path: |
+            artifacts/endurance-balance.json
+            artifacts/endurance-balance.md
+
   browser-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 10
