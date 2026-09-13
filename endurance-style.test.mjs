@@ -9,11 +9,18 @@ for (const selector of [
   '.endurance-records',
   '.game-screen[data-mode="endurance"]',
   '.game-screen[data-mode="endurance"] .playfield-hud-top',
+  '.game-screen[data-mode="endurance"] .playfield-objective',
+  '.game-screen[data-mode="endurance"] .run-stats-inline > div:nth-child(3)',
+  '.game-screen[data-mode="endurance"][data-palette-stage="1"]',
+  '.game-screen[data-mode="endurance"][data-palette-stage="2"]',
   '@media (max-width: 720px)',
 ]) {
   assert.ok(css.includes(selector), `missing Endurance style contract: ${selector}`);
 }
 
+assert.ok(!css.includes('data-spatial-stage'), 'Endurance v2 must not keep visual hooks for removed spatial stages');
+assert.ok(css.includes('visibility: hidden'), 'Endurance objective slot should stay layout-stable but visually empty');
+assert.ok(css.includes('display: none'), 'Endurance third compact stat must be removed from layout');
 assert.ok(css.includes('prefers-reduced-motion'), 'Endurance UI motion must respect reduced-motion preferences');
 
-console.log('✓ Endurance visual contract');
+console.log('✓ Endurance v2 visual contract');
