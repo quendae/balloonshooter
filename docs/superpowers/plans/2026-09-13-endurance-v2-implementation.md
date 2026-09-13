@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace Endurance's round/zoom loop with a fixed 11/10 board where every resolved miss adds one pressure row, palette difficulty grows at 60/120 seconds, specials are visually self-explanatory, and a deterministic balance harness validates the chosen tuning.
+**Goal:** Replace Endurance's round/zoom loop with a fixed 11/10 board where every resolved miss adds one pressure row, palette difficulty grows at 60/120 seconds, specials are visually self-explanatory, and a deterministic balance harness validates tuning before any balance changes are accepted.
 
-**Architecture:** Keep campaign code and `balloon.html` unchanged. Refactor Endurance into fixed pure rules in `src/endurance-core.mjs`, one fixed 11/10 geometry in `src/endurance-geometry.mjs`, and a simplified `EnduranceGame` runtime with no round/spatial-expansion state. Endurance rendering owns atmosphere crossfades while the shared shot renderer owns upgraded special visuals. A separate headless balance simulator reuses Endurance rules without browser/Canvas dependencies.
+**Architecture:** Keep campaign behavior and `balloon.html` unchanged. Refactor Endurance pure rules into `src/endurance-core.mjs`, use one fixed 11/10 geometry in `src/endurance-geometry.mjs`, and simplify `EnduranceGame` so it owns active time, combo, palette stage, miss rows, and special scheduling without round/spatial-expansion state. `EnduranceRenderer` owns atmosphere crossfades; shared shot drawing owns improved Bomb/Rainbow/Guide bodies. A headless balance simulator reuses the same pure board/rule helpers without browser or Canvas dependencies.
 
 **Tech Stack:** Vanilla JavaScript ES modules, Canvas 2D, Node 22 + `node:assert/strict`, Playwright Chromium browser smoke, localStorage, GitHub Actions.
 
@@ -12,44 +12,46 @@
 
 ## Global Constraints
 
-- Fixed Endurance board: **11 columns on even rows / 10 columns on odd rows**.
+- Fixed board: **11 columns on even rows / 10 columns on odd rows**.
 - Start with exactly **4 occupied rows**.
-- Top-row orb body must visually touch the ceiling boundary.
+- Top-row orb body visually touches the ceiling boundary.
 - A resolved shot is successful iff **`popped + dropped > 0`**.
-- A resolved shot with **`popped + dropped === 0` adds exactly one full pressure row**.
+- **`popped + dropped === 0` adds exactly one full pressure row**.
 - Drop-only success does **not** add a row.
-- No round counter, 3-shot cadence, timed spatial expansion, adaptive zoom timer, or post-120-second mechanic.
-- Active palette: **4 colors before 60 s; 5 colors from 60 s; 6 colors from 120 s onward**.
-- Pause freezes active-play time and therefore palette progression.
-- Background transition duration: **1.5 s** and must not pause gameplay.
-- Endurance scoring uses the existing pop/drop base values plus combo multiplier: `min(2.0, 1 + 0.10 * max(0, combo - 1))`.
-- Clear bonus baseline: **1000**, once per transition into an empty board, not combo-multiplied initially.
-- Special baseline: first at resolved shot **12**, then every **8** shots, cycling `guide → bomb → rainbow`, never back-to-back.
-- Special callout duration: **1.5 s**; per-type display cooldown: **8 s**.
-- Records: `bestScore`, `bestTimeMs`, `bestCombo`; migrate old `bestRound` safely.
-- Balance harness may compare parameters but must never automatically rewrite production config.
+- No round counter, 3-shot cadence, timed board expansion, adaptive zoom timer, or post-120-second difficulty mechanic.
+- Palette: **4 colors before 60 s; 5 from 60 s; 6 from 120 s onward**.
+- Pause freezes active-play time and palette/background progression.
+- Background crossfade: **1.5 s**, gameplay continues.
+- Endurance combo multiplier: `min(2.0, 1 + 0.10 * max(0, combo - 1))`.
+- Clear bonus: **1000**, once per transition into an empty board, not combo-multiplied initially.
+- Specials: first at resolved shot **12**, then every **8**, cycle `guide → bomb → rainbow`, never back-to-back.
+- Special explanation: **1.5 s**, per-type display cooldown **8 s**.
+- Records: `bestScore`, `bestTimeMs`, `bestCombo`; old `bestRound` must migrate safely.
+- HUD information is exactly **Wynik / Combo / Czas / Kolory**. Miss/row counts may appear in the result dialog, not as a permanent fifth/sixth HUD statistic.
+- Balance harness may recommend values but must never rewrite production config automatically.
 - Do not merge PR #2 or advance `main`/`playable` unless explicitly requested.
 
 ---
 
-### Task 1: Replace round/expansion rules with fixed Endurance v2 pure rules
+### Task 1: Replace round/zoom helpers with Endurance v2 pure rules
 
 **Files:**
 - Modify: `src/endurance-core.mjs`
-- Replace expectations in: `endurance-core.test.mjs`
+- Rewrite: `endurance-core.test.mjs`
 
 **Interfaces:**
 - Produces: `paletteStageAt(elapsedMs, config) -> 0 | 1 | 2`
 - Produces: `paletteForElapsed(elapsedMs, config) -> number[]`
 - Produces: `enduranceComboMultiplier(combo, config) -> number`
 - Produces: `classifyEnduranceResolution({ popped, dropped }) -> { successful, removed }`
-- Produces: `scheduledSpecialType({ resolvedShots, previousWasSpecial }, config) -> 'guide' | 'bomb' | 'rainbow' | null`
-- Produces: `updateEnduranceRecords(records, result) -> { records, newRecords }`
-- Retains: `generateEnduranceRow(...)`, `generateInitialEnduranceGrid(...)`
+- Produces: `scheduledSpecialType({ resolvedShots, previousWasSpecial }, config) -> special|null`
+- Produces: `specialShotLabel(type) -> string`
+- Produces: `updateEnduranceRecords(records, result)`
+- Retains deterministic row generation helpers.
 
-- [ ] **Step 1: Rewrite the core test to describe Endurance v2 and make it RED**
+- [ ] **Step 1: Write the new failing core contract**
 
-Replace round/zoom assertions in `endurance-core.test.mjs` with focused assertions like:
+Replace the old round/expansion assertions with:
 
 ```js
 import assert from 'node:assert/strict';
@@ -60,6 +62,7 @@ import {
   enduranceComboMultiplier,
   classifyEnduranceResolution,
   scheduledSpecialType,
+  specialShotLabel,
   updateEnduranceRecords,
 } from './src/endurance-core.mjs';
 
@@ -78,7 +81,7 @@ assert.deepEqual(paletteForElapsed(60_000), [1, 2, 3, 4, 5]);
 assert.deepEqual(paletteForElapsed(120_000), [1, 2, 3, 4, 5, 6]);
 
 assert.deepEqual(classifyEnduranceResolution({ popped: 0, dropped: 0 }), { successful: false, removed: 0 });
-assert.deepEqual(classifyEnduranceResolution({ popped: 0, dropped: 5 }), { successful: true, removed: 5 });
+assert.deepEqual(classifyEnduranceResolution({ popped: 0, dropped: 4 }), { successful: true, removed: 4 });
 assert.equal(enduranceComboMultiplier(1), 1);
 assert.equal(enduranceComboMultiplier(2), 1.1);
 assert.equal(enduranceComboMultiplier(11), 2);
@@ -90,12 +93,16 @@ assert.equal(scheduledSpecialType({ resolvedShots: 20, previousWasSpecial: false
 assert.equal(scheduledSpecialType({ resolvedShots: 28, previousWasSpecial: false }), 'rainbow');
 assert.equal(scheduledSpecialType({ resolvedShots: 28, previousWasSpecial: true }), null);
 
-const updated = updateEnduranceRecords(
+assert.equal(specialShotLabel('bomb'), 'BOMB — niszczy obszar');
+assert.equal(specialShotLabel('rainbow'), 'RAINBOW — dopasowuje kolor');
+assert.equal(specialShotLabel('guide'), 'GUIDE — pokazuje pełną trajektorię');
+
+const migrated = updateEnduranceRecords(
   { bestScore: 900, bestTimeMs: 50_000, bestRound: 8 },
   { score: 1200, elapsedMs: 45_000, bestCombo: 7 },
 );
-assert.deepEqual(updated.records, { bestScore: 1200, bestTimeMs: 50_000, bestCombo: 7 });
-assert.deepEqual(updated.newRecords, { score: true, time: false, combo: true });
+assert.deepEqual(migrated.records, { bestScore: 1200, bestTimeMs: 50_000, bestCombo: 7 });
+assert.deepEqual(migrated.newRecords, { score: true, time: false, combo: true });
 ```
 
 - [ ] **Step 2: Run RED**
@@ -104,11 +111,11 @@ assert.deepEqual(updated.newRecords, { score: true, time: false, combo: true });
 node endurance-core.test.mjs
 ```
 
-Expected: FAIL because the new helpers/config fields do not exist and old round/expansion helpers still drive the module.
+Expected: FAIL because the v2 helpers/config do not exist.
 
-- [ ] **Step 3: Replace the config and pure helpers**
+- [ ] **Step 3: Replace the config and helpers**
 
-Refactor `ENDURANCE_CONFIG` toward this shape:
+Use this production baseline:
 
 ```js
 export const ENDURANCE_CONFIG = Object.freeze({
@@ -129,7 +136,7 @@ export const ENDURANCE_CONFIG = Object.freeze({
 });
 ```
 
-Implement pure helpers explicitly:
+Implement:
 
 ```js
 export function paletteStageAt(elapsedMs, config = ENDURANCE_CONFIG) {
@@ -155,7 +162,7 @@ export function classifyEnduranceResolution({ popped = 0, dropped = 0 } = {}) {
 }
 ```
 
-Delete the active round/expansion helpers (`createEnduranceState`, `advanceRoundState`, expansion timing functions, round multiplier/survival bonus). Rework `scheduledSpecialType` and records around resolved-shot count / best combo.
+Delete active round/expansion helpers and rework specials/records around resolved shots and best combo.
 
 - [ ] **Step 4: Run GREEN**
 
@@ -174,47 +181,34 @@ git commit -m "refactor: define Endurance v2 core rules"
 
 ---
 
-### Task 2: Make Endurance geometry fixed 11/10 with ceiling contact
+### Task 2: Make the board fixed 11/10 and remove the ceiling gap
 
 **Files:**
 - Modify: `src/endurance-geometry.mjs`
-- Modify: `endurance-geometry.test.mjs`
+- Rewrite: `endurance-geometry.test.mjs`
 
 **Interfaces:**
 - Produces: `createEnduranceGeometry({ rowPhase = 0 })`
-- Retains: `shiftGridForNewRow(grid, geometry) -> { grid, nextRowPhase, overflowed }`
-- Retains: `failureLineReached(grid, geometry) -> boolean`
-- Removes from active API: `canExpandSpatially`, `remapGridForExpansion`
+- Retains: `shiftGridForNewRow(grid, geometry)` and `failureLineReached(grid, geometry)`
+- Removes active `spatialStage`, `canExpandSpatially`, and `remapGridForExpansion` behavior.
 
-- [ ] **Step 1: Replace geometry tests with the fixed-board contract**
-
-Use assertions like:
+- [ ] **Step 1: Write fixed-board RED tests**
 
 ```js
 const g0 = createEnduranceGeometry({ rowPhase: 0 });
 assert.equal(g0.rowCols(0), 11);
 assert.equal(g0.rowCols(1), 10);
 assert.ok(Math.abs(g0.RAD - (240 / 22)) < 1e-9);
-assert.ok(Math.abs(g0.rowY(0) - g0.RAD) < 1e-9, 'top orb must touch y=0 ceiling');
-assert.ok(g0.MAXROW >= 12, 'fixed board needs enough logical pressure depth');
+assert.ok(Math.abs(g0.rowY(0) - g0.RAD) < 1e-9, 'orb body must touch y=0');
+assert.ok(g0.MAXROW >= 12);
 
 const g1 = createEnduranceGeometry({ rowPhase: 1 });
 assert.equal(g1.rowCols(0), 10);
 assert.equal(g1.rowCols(1), 11);
 assert.equal(g1.RAD, g0.RAD);
-
-for (const g of [g0, g1]) {
-  for (let r = 0; r <= g.MAXROW; r += 1) {
-    for (let c = 0; c < g.rowCols(r); c += 1) {
-      const x = g.colX(c, r);
-      assert(x - g.RAD >= -0.001);
-      assert(x + g.RAD <= g.LW + 0.001);
-    }
-  }
-}
 ```
 
-Keep/extend shift tests to prove exactly one-row movement, row-phase alternation, and safe overflow detection.
+Keep neighbor symmetry, horizontal bounds, deterministic row-generation, row-phase-shift, overflow, and failure-line assertions.
 
 - [ ] **Step 2: Run RED**
 
@@ -222,11 +216,9 @@ Keep/extend shift tests to prove exactly one-row movement, row-phase alternation
 node endurance-geometry.test.mjs
 ```
 
-Expected: FAIL on 11/10, radius, ceiling Y, and removed spatial-stage assumptions.
+Expected: FAIL on current 10/9 stage-zero geometry and Y=48 top row.
 
-- [ ] **Step 3: Implement one fixed geometry**
-
-Use horizontal fit to derive radius and vertical failure capacity rather than a magic expansion stage:
+- [ ] **Step 3: Implement one geometry**
 
 ```js
 const LW = 240;
@@ -242,20 +234,18 @@ export function createEnduranceGeometry({ rowPhase = 0 } = {}) {
   const PV = Math.sqrt(3) * RAD;
   const Y0 = RAD;
   const MAXROW = Math.floor((LAUNCH_Y - FAILURE_MARGIN - RAD - Y0) / PV);
-  // existing key/split/neighbors/settle/findSnap helpers remain geometry-local
+  // preserve the existing geometry-local key/neighbors/settle/findSnap helpers
 }
 ```
 
-`shiftGridForNewRow` creates only the alternate-phase fixed geometry. Remove spatial-stage descriptors/remapping.
+`shiftGridForNewRow()` only flips row phase and shifts `r -> r + 1`; physical horizontal alignment must remain stable.
 
-- [ ] **Step 4: Run GREEN plus shared resolver regression**
+- [ ] **Step 4: Run GREEN and resolver regression**
 
 ```bash
 node endurance-geometry.test.mjs
 node shot-resolution.test.mjs
 ```
-
-Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
@@ -266,51 +256,48 @@ git commit -m "refactor: fix Endurance board at 11 by 10"
 
 ---
 
-### Task 3: Rebuild Endurance runtime around miss pressure, timed colors, and combo scoring
+### Task 3: Rebuild runtime around miss pressure, combo scoring, and 60/120 palette stages
 
 **Files:**
 - Modify: `src/endurance-game.mjs`
 - Rewrite: `endurance-runtime.test.mjs`
 
 **Interfaces:**
-- Consumes: Task 1 pure rules and Task 2 fixed geometry.
-- Snapshot produces: `{ mode, status, score, combo, bestCombo, queue, shotsUsed, resolvedShots, elapsedMs, paletteStage, colorCount, misses, rowsAdded, boss:false }`.
-- Callback: `onEndurancePalette({ stage, colorCount })` fires once per palette threshold.
-- Callback: existing `onEnduranceRow(...)` fires once for each miss row insertion.
+- Snapshot: `{ mode, status, score, combo, bestCombo, queue, shotsUsed, resolvedShots, elapsedMs, paletteStage, colorCount, misses, rowsAdded, boss:false }`
+- Callback: `onEndurancePalette({ stage, colorCount })`
+- Callback: `onEnduranceRow({ rowsAdded, gridSize })`
 
-- [ ] **Step 1: Rewrite runtime tests for the new state machine**
-
-Key assertions:
+- [ ] **Step 1: Write new runtime tests**
 
 ```js
 game.start('test-seed');
-assert.equal(game.combo, 0);
-assert.equal(game.bestCombo, 0);
-assert.equal(game.rowsAdded, 0);
-assert.equal(game.getSnapshot().colorCount, 4);
-assert.equal('round' in game.getSnapshot(), false);
-assert.equal('shotsUntilRow' in game.getSnapshot(), false);
-assert.equal('spatialStage' in game.getSnapshot(), false);
+const start = game.getSnapshot();
+assert.equal(start.colorCount, 4);
+assert.equal(start.combo, 0);
+assert.equal(start.bestCombo, 0);
+assert.equal(start.rowsAdded, 0);
+assert.equal('round' in start, false);
+assert.equal('shotsUntilRow' in start, false);
+assert.equal('spatialStage' in start, false);
 
-const rowsBeforeSuccess = callbacks.rows;
+const rowEvents = callbacks.rows;
 game.afterResolvedEnduranceShot({ popped: 3, dropped: 0, turnScore: 30 });
-assert.equal(callbacks.rows, rowsBeforeSuccess);
+assert.equal(callbacks.rows, rowEvents);
 assert.equal(game.combo, 1);
 
-const rowsBeforeDropOnly = callbacks.rows;
 game.afterResolvedEnduranceShot({ popped: 0, dropped: 4, turnScore: 100 });
-assert.equal(callbacks.rows, rowsBeforeDropOnly, 'drop-only removal is success');
+assert.equal(callbacks.rows, rowEvents, 'drop-only success does not add pressure');
 assert.equal(game.combo, 2);
 
-const lowestBeforeMiss = game.B.lowestRow(game.grid);
+const lowest = game.B.lowestRow(game.grid);
 game.afterResolvedEnduranceShot({ popped: 0, dropped: 0, turnScore: 0 });
-assert.equal(callbacks.rows, rowsBeforeDropOnly + 1);
+assert.equal(callbacks.rows, rowEvents + 1);
 assert.equal(game.rowsAdded, 1);
 assert.equal(game.combo, 0);
-assert.equal(game.B.lowestRow(game.grid), lowestBeforeMiss + 1);
+assert.equal(game.B.lowestRow(game.grid), lowest + 1);
 ```
 
-Test time progression without waiting in real time:
+Test active-time boundaries:
 
 ```js
 game.elapsedMs = 59_999;
@@ -319,16 +306,18 @@ assert.equal(game.getSnapshot().colorCount, 5);
 
 game.setPaused(true);
 const frozen = game.elapsedMs;
-game.update(20);
+game.update(10);
 assert.equal(game.elapsedMs, frozen);
 game.setPaused(false);
 
 game.elapsedMs = 119_999;
 game.update(.001);
 assert.equal(game.getSnapshot().colorCount, 6);
+game.elapsedMs = 500_000;
+assert.equal(game.getSnapshot().colorCount, 6);
 ```
 
-Also assert clear bonus latching, loss on pressure overflow, deterministic special sequence, and that production scoring uses Task 1's combo multiplier.
+Also test clear-bonus latching, pressure loss, deterministic special sequence, and result payload.
 
 - [ ] **Step 2: Run RED**
 
@@ -336,11 +325,9 @@ Also assert clear bonus latching, loss on pressure overflow, deterministic speci
 node endurance-runtime.test.mjs
 ```
 
-Expected: FAIL because runtime still uses rounds, 3-shot rows, `difficultyStage`, `spatialStage`, and zoom state.
+- [ ] **Step 3: Strip obsolete runtime state**
 
-- [ ] **Step 3: Strip round/zoom state and implement palette-stage transitions**
-
-Constructor/start state should reduce to:
+Start/reset only:
 
 ```js
 this.elapsedMs = 0;
@@ -354,11 +341,24 @@ this.lastIssuedShotWasSpecial = false;
 this.lastSpecialCalloutAt = new Map();
 ```
 
-`update(dt)` increments active time only while playing/unpaused, derives the new palette stage, reconciles queue colors, fires `onEndurancePalette`, then delegates projectile motion to `super.update(safeDt)`.
+Remove `round`, `shotsInRound`, `difficultyStage`, `spatialStage`, `pendingExpansion`, and their methods.
 
-- [ ] **Step 4: Make shot resolution decide pressure immediately**
+- [ ] **Step 4: Prevent double combo multiplication**
 
-Use one post-resolution path:
+The shared `scoreTurn()` already has campaign combo math. Endurance must request the base turn score with `combo: 1`:
+
+```js
+const breakdown = scoreTurn({
+  popped: popped.length,
+  dropped: dropped.length,
+  combo: 1,
+  cascadeCount: dropped.length >= 3 ? 1 : 0,
+});
+```
+
+Then apply only Endurance's own combo multiplier after resolution.
+
+- [ ] **Step 5: Make resolution authoritative for pressure**
 
 ```js
 afterResolvedEnduranceShot({ popped = 0, dropped = 0, turnScore = 0 } = {}) {
@@ -382,13 +382,13 @@ afterResolvedEnduranceShot({ popped = 0, dropped = 0, turnScore = 0 } = {}) {
 }
 ```
 
-Do not double-count `misses`: remove the old miss increment in `land()` if `afterResolvedEnduranceShot()` becomes authoritative.
+Remove the old `misses += 1` from `land()` so a miss is counted exactly once.
 
-- [ ] **Step 5: Rework row insertion and result payload**
+- [ ] **Step 6: Use elapsed time for palette/queue/rows**
 
-`insertEnduranceRow()` must use `paletteForElapsed(this.elapsedMs, this.config)`, increment `rowsAdded`, fire `onEnduranceRow({ rowsAdded, gridSize })`, and never mention round/spatial stage.
+`pickColor`, `reconcileQueueColors`, and pressure-row generation all use `paletteForElapsed(this.elapsedMs, this.config)`. `update(dt)` detects stage changes and fires `onEndurancePalette` once per threshold.
 
-Result shape:
+Result payload:
 
 ```js
 {
@@ -402,7 +402,7 @@ Result shape:
 }
 ```
 
-- [ ] **Step 6: Run GREEN and regressions**
+- [ ] **Step 7: Run GREEN/regressions**
 
 ```bash
 node endurance-runtime.test.mjs
@@ -412,9 +412,7 @@ node shot-resolution.test.mjs
 node campaign-empty-board.test.mjs
 ```
 
-Expected: PASS.
-
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add src/endurance-game.mjs endurance-runtime.test.mjs
@@ -423,30 +421,28 @@ git commit -m "feat: make Endurance misses add pressure rows"
 
 ---
 
-### Task 4: Migrate Endurance records and remove round language from UI
+### Task 4: Migrate records and reduce the HUD to Wynik / Combo / Czas / Kolory
 
 **Files:**
 - Modify: `src/save.mjs`
 - Modify: `save.test.mjs`
 - Modify: `index.html`
 - Modify: `src/app.mjs`
-- Modify: `endurance-ui.test.mjs`
 - Modify: `styles/endurance.css`
+- Modify: `endurance-ui.test.mjs`
 - Modify: `endurance-style.test.mjs`
 
 **Interfaces:**
-- Save schema: `endurance: { bestScore, bestTimeMs, bestCombo }`.
-- HUD stats in Endurance: time/colors plus existing score/combo top HUD; no round/countdown values.
+- Save schema: `{ bestScore, bestTimeMs, bestCombo }`.
+- Existing top score/combo remain; Endurance bottom stats expose only time and color count.
 
-- [ ] **Step 1: Make save migration RED**
-
-Update `save.test.mjs`:
+- [ ] **Step 1: Write migration RED test**
 
 ```js
-const normalized = normalizeProgress({
+const legacy = normalizeProgress({
   endurance: { bestScore: 1234, bestTimeMs: 65_000, bestRound: 9 },
 });
-assert.deepEqual(normalized.endurance, { bestScore: 1234, bestTimeMs: 65_000, bestCombo: 0 });
+assert.deepEqual(legacy.endurance, { bestScore: 1234, bestTimeMs: 65_000, bestCombo: 0 });
 
 const modern = normalizeProgress({
   endurance: { bestScore: 5000, bestTimeMs: 180_000, bestCombo: 14 },
@@ -454,17 +450,9 @@ const modern = normalizeProgress({
 assert.deepEqual(modern.endurance, { bestScore: 5000, bestTimeMs: 180_000, bestCombo: 14 });
 ```
 
-Run:
+Run `node save.test.mjs`; expect FAIL.
 
-```bash
-node save.test.mjs
-```
-
-Expected: FAIL on old `bestRound` schema.
-
-- [ ] **Step 2: Implement normalized `bestCombo` schema**
-
-In `src/save.mjs` return:
+- [ ] **Step 2: Normalize bestCombo**
 
 ```js
 endurance: {
@@ -474,20 +462,12 @@ endurance: {
 },
 ```
 
-Run `node save.test.mjs`; expect PASS.
-
-- [ ] **Step 3: Make UI contract RED**
-
-Change `endurance-ui.test.mjs` to require:
+- [ ] **Step 3: Write UI RED contract**
 
 ```js
-for (const id of [
-  'enduranceBestScore', 'enduranceBestTime', 'enduranceBestCombo',
-  'statOneLabel', 'statTwoLabel', 'statThreeLabel',
-]) assert.ok(html.includes(`id="${id}"`));
-
 assert.ok(html.includes('Pudło = nowy rząd'));
 assert.ok(html.includes('Best Combo'));
+assert.ok(html.includes('id="enduranceBestCombo"'));
 assert.ok(!html.includes('Best Round'));
 assert.ok(!app.includes("textContent = 'Runda'"));
 assert.ok(!app.includes("textContent = 'Do rzędu'"));
@@ -495,41 +475,39 @@ assert.ok(app.includes("textContent = 'Czas'"));
 assert.ok(app.includes("textContent = 'Kolory'"));
 ```
 
-Run:
+- [ ] **Step 4: Update intro/records/result**
 
-```bash
-node endurance-ui.test.mjs
-```
+`index.html`: `Pudło = nowy rząd`, `Best Combo`, `enduranceBestCombo`.
 
-Expected: FAIL against current copy/IDs.
-
-- [ ] **Step 4: Update intro, records, HUD, and result dialog**
-
-In `index.html` change the rule line to `Pudło = nowy rząd`, rename `enduranceBestRound` → `enduranceBestCombo`, and label it `Best Combo`.
-
-In `src/app.mjs`:
+`renderEnduranceRecords()`:
 
 ```js
-function renderEnduranceRecords() {
-  const record = progress.endurance || { bestScore: 0, bestTimeMs: 0, bestCombo: 0 };
-  refs.enduranceBestScore.textContent = record.bestScore.toLocaleString('pl-PL');
-  refs.enduranceBestTime.textContent = formatDuration(record.bestTimeMs);
-  refs.enduranceBestCombo.textContent = String(record.bestCombo);
+const record = progress.endurance || { bestScore: 0, bestTimeMs: 0, bestCombo: 0 };
+refs.enduranceBestScore.textContent = record.bestScore.toLocaleString('pl-PL');
+refs.enduranceBestTime.textContent = formatDuration(record.bestTimeMs);
+refs.enduranceBestCombo.textContent = String(record.bestCombo);
+```
+
+Update record comparison around `bestCombo`. Result detail includes time, best combo, shots, misses/rows added, and reason; no round/stars/mastery/Next.
+
+- [ ] **Step 5: Make HUD exactly four information fields**
+
+Keep top `scoreValue` and `comboValue` as Wynik/Combo. In Endurance bottom stats use two visible cells only:
+
+```js
+refs.statOneLabel.textContent = 'Czas';
+refs.statTwoLabel.textContent = 'Kolory';
+refs.shotsValue.textContent = formatDuration(snapshot.elapsedMs);
+refs.dropValue.textContent = String(snapshot.colorCount);
+```
+
+Hide the third bottom `<dl>` cell only in Endurance via CSS rather than inventing a permanent Pudła/Rzędy HUD field:
+
+```css
+.game-screen[data-mode="endurance"] .run-stats-inline > div:nth-child(3) {
+  display: none;
 }
 ```
-
-Update `updateEnduranceRecords()` around score/time/combo. For Endurance HUD use `Czas`, `Kolory`, and `Pudła`/`Rzędy` as the bottom compact stats while score/combo remain in the top HUD. Do not reintroduce a hidden round counter.
-
-End result copy should be based on the result payload, e.g.:
-
-```js
-refs.resultTitle.textContent = `Combo ${result.bestCombo}`;
-refs.resultDetail.textContent = `${formatDuration(result.elapsedMs)} • ${result.resolvedShots} strzałów • ${result.rowsAdded} nowych rzędów • ${result.reason}`;
-```
-
-- [ ] **Step 5: Update Endurance CSS contract**
-
-Remove `[data-spatial-stage]` styling. Keep mobile/reduced-motion rules. Add selectors for a special-ready callout class that will be wired in Task 6, but do not animate it yet beyond existing opacity/transform patterns.
 
 - [ ] **Step 6: Run GREEN**
 
@@ -539,18 +517,16 @@ node endurance-ui.test.mjs
 node endurance-style.test.mjs
 ```
 
-Expected: PASS.
-
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/save.mjs save.test.mjs index.html src/app.mjs endurance-ui.test.mjs styles/endurance.css endurance-style.test.mjs
+git add src/save.mjs save.test.mjs index.html src/app.mjs styles/endurance.css endurance-ui.test.mjs endurance-style.test.mjs
 git commit -m "feat: remove rounds from Endurance UI and records"
 ```
 
 ---
 
-### Task 5: Add 60/120-second atmosphere crossfades and scale the in-playfield shot rack
+### Task 5: Replace zoom with 1.5-second atmosphere crossfades and scale all fired/queued orbs
 
 **Files:**
 - Modify: `src/endurance-game.mjs`
@@ -560,13 +536,10 @@ git commit -m "feat: remove rounds from Endurance UI and records"
 - Modify: `orb-rack.test.mjs`
 
 **Interfaces:**
-- Runtime render state adds: `enduranceAtmosphere: { stage, fromStage, progress }`.
-- `GameRenderer.drawOrbRack(queue, projectileActive, baseScale = 1)` keeps campaign default at `1`.
-- Endurance passes `board.RAD / 12` as `baseScale` so current/queued/projectile orbs match board geometry.
+- Render state: `enduranceAtmosphere: { stage, fromStage, progress }`.
+- `GameRenderer.drawOrbRack(queue, projectileActive, baseScale = 1)`; campaign keeps default scale 1.
 
-- [ ] **Step 1: Write RED tests for atmosphere and rack scale**
-
-`endurance-renderer.test.mjs` should require the new state contract and reject old transition-cell zoom code:
+- [ ] **Step 1: Write RED renderer/rack tests**
 
 ```js
 const source = await fs.readFile(new URL('./src/endurance-renderer.mjs', import.meta.url), 'utf8');
@@ -576,62 +549,56 @@ assert.ok(source.includes('board.RAD / 12'));
 assert.ok(!source.includes('transitionCells'));
 ```
 
-Extend `orb-rack.test.mjs` so layout scales can be multiplied without changing campaign defaults.
+Extend `orb-rack.test.mjs` to prove campaign layout defaults are unchanged and Endurance can multiply sprite scale.
 
-Run:
-
-```bash
-node endurance-renderer.test.mjs
-node orb-rack.test.mjs
-```
-
-Expected: RED.
-
-- [ ] **Step 2: Add pure atmosphere-transition state in Endurance runtime**
-
-Add a helper or local method that uses active elapsed time:
+- [ ] **Step 2: Add atmosphere transition state**
 
 ```js
 function atmosphereState(elapsedMs, config) {
   const stage = paletteStageAt(elapsedMs, config);
   const threshold = stage === 1 ? config.paletteThresholdMs[0]
     : stage === 2 ? config.paletteThresholdMs[1] : 0;
-  const progress = stage === 0 ? 1 : Math.min(1, Math.max(0, (elapsedMs - threshold) / config.atmosphereTransitionMs));
+  const progress = stage === 0 ? 1
+    : Math.min(1, Math.max(0, (elapsedMs - threshold) / config.atmosphereTransitionMs));
   return { stage, fromStage: Math.max(0, stage - 1), progress };
 }
 ```
 
-Expose this only in render state; do not mutate campaign level data.
+Expose only through Endurance render state.
 
-- [ ] **Step 3: Replace Endurance zoom rendering with sky crossfade**
+- [ ] **Step 3: Add a true late-afternoon visual state**
 
-In `EnduranceRenderer`, add stage-specific visual levels and crossfade:
+Extend shared `skyPalette()` / meadow sun placement with a new `timeOfDay: 'late-day'` value used only by Endurance; existing campaign time-of-day values must render exactly as before.
+
+Endurance stages:
 
 ```js
 const ENDURANCE_SKIES = [
   { world: 'meadow', atmosphere: { timeOfDay: 'day', weather: 'clear', intensity: .15 } },
-  { world: 'meadow', atmosphere: { timeOfDay: 'morning', weather: 'breeze', intensity: .35 } },
+  { world: 'meadow', atmosphere: { timeOfDay: 'late-day', weather: 'breeze', intensity: .35 } },
   { world: 'meadow', atmosphere: { timeOfDay: 'sunset', weather: 'breeze', intensity: .55 } },
 ];
 ```
 
-Draw `fromStage` and `stage` under separate `ctx.save()/globalAlpha/restore()` blocks using `progress`. Keep the board fully opaque/readable.
+`drawEnduranceSky()` draws from/to stages under `ctx.globalAlpha` using transition progress. Never lower board/orb alpha.
 
-- [ ] **Step 4: Generalize rack scale without changing campaign**
+- [ ] **Step 4: Scale launcher orb, queue orbs, and projectile consistently**
 
-Update `drawOrbRack` so socket geometry stays in the same positions, but shot sprite scale is multiplied by `baseScale`:
+Generalize rack drawing:
 
 ```js
 drawOrbRack(queue, projectileActive, baseScale = 1) {
-  // ... layout unchanged
-  if (layout.current && queue[0]) this.drawShot(queue[0], layout.current.x, layout.current.y, layout.current.scale * baseScale);
-  // same for next shots
+  const layout = orbRackLayout(this.B, projectileActive);
+  if (layout.current && queue[0]) {
+    this.drawShot(queue[0], layout.current.x, layout.current.y, layout.current.scale * baseScale);
+  }
+  // apply baseScale to next slots too
 }
 ```
 
-Campaign continues to call the method with two arguments; Endurance calls it with `boardScale`.
+Endurance passes `board.RAD / 12`; campaign continues to call with the default. Projectile already uses board scale; verify that path remains aligned.
 
-- [ ] **Step 5: Run GREEN and campaign rendering regressions**
+- [ ] **Step 5: Run GREEN/regressions**
 
 ```bash
 node endurance-renderer.test.mjs
@@ -640,18 +607,16 @@ node gameplay-polish.test.mjs
 node pixel-art.test.mjs
 ```
 
-Expected: PASS.
-
 - [ ] **Step 6: Commit**
 
 ```bash
 git add src/endurance-game.mjs src/endurance-renderer.mjs src/game-renderer.mjs endurance-renderer.test.mjs orb-rack.test.mjs
-git commit -m "feat: add Endurance color-stage atmosphere transitions"
+git commit -m "feat: add Endurance atmosphere progression"
 ```
 
 ---
 
-### Task 6: Redesign Bomb/Rainbow/Guide visuals and active-shot explanations
+### Task 6: Make Bomb/Rainbow/Guide recognizable before firing
 
 **Files:**
 - Modify: `src/pixel-art.mjs`
@@ -664,50 +629,40 @@ git commit -m "feat: add Endurance color-stage atmosphere transitions"
 - Modify: `.github/workflows/ci.yml`
 
 **Interfaces:**
-- Produces: `specialShotLabel(type) -> string` in Endurance core or a small exported map in `endurance-game.mjs`.
+- Consumes `specialShotLabel(type)` from Task 1.
 - Callback: `onEnduranceSpecialReady({ type, label })`.
-- Special visual drawing remains in shared Canvas path so launcher, queued shot, and projectile all use the same treatment.
+- Shared Canvas shot renderer must use the same special body for active rack, queued rack, and projectile.
 
-- [ ] **Step 1: Add RED visual-contract tests**
+- [ ] **Step 1: Add RED special contracts**
 
-`pixel-art.test.mjs` should verify all three specials have dedicated drawing/data definitions rather than only normal-orb overlays. `endurance-specials.test.mjs` should verify text/cooldown behavior:
+Test that Bomb/Rainbow/Guide each have a dedicated body treatment and that active-shot announcement obeys 8-second per-type cooldown.
 
 ```js
-assert.equal(specialShotLabel('bomb'), 'BOMB — niszczy obszar');
-assert.equal(specialShotLabel('rainbow'), 'RAINBOW — dopasowuje kolor');
-assert.equal(specialShotLabel('guide'), 'GUIDE — pokazuje pełną trajektorię');
-
+const events = [];
 const game = new EnduranceGame(fakeCanvas(), {
   onEnduranceSpecialReady: (event) => events.push(event),
 }, { config: ENDURANCE_CONFIG });
-// Put a special at queue[0], trigger active-shot detection, then repeat inside 8 s.
-// Expect exactly one callback; after advancing elapsedMs beyond cooldown expect a second callback.
+
+// Arrange queue[0] as bomb, call active-special detector twice inside cooldown.
+assert.equal(events.length, 1);
+game.elapsedMs += 8000;
+// Re-activate same type.
+assert.equal(events.length, 2);
 ```
 
-Run:
+- [ ] **Step 2: Implement full special bodies, not tiny overlays**
 
-```bash
-node pixel-art.test.mjs
-node endurance-specials.test.mjs
+Use classic circular silhouette but distinct interior/outline language:
+
+```text
+Bomb    = charcoal shell + thick outline + yellow/orange core/fuse pulse
+Rainbow = segmented multi-color body + moving shimmer
+Guide   = pale technical body + pulsing target ring/corner marks
 ```
 
-Expected: RED.
+At `draw()` start set `this.animationTime = time`; special drawing uses this value for pulse/shimmer, avoiding extra timers.
 
-- [ ] **Step 2: Implement visually distinct special bodies**
-
-Keep classic circular silhouette but draw the whole body by type:
-
-- Bomb: dark shell + warm core/fuse + thicker outline.
-- Rainbow: multi-segment body + moving highlight/shimmer.
-- Guide: pale technical body + pulsing targeting corners/ring.
-
-Do not change Bomb/Rainbow/Guide resolution mechanics.
-
-Use render time already passed into the renderer (store as `this.animationTime = time` at the start of `draw`) so pulse/shimmer remains deterministic per frame and no new timers are required.
-
-- [ ] **Step 3: Detect when a special becomes the active queue shot**
-
-In Endurance runtime, compare the current `queue[0]?.type` after start/shot resolution/queue refill. Maintain `lastSpecialCalloutAt` by type in active-play milliseconds:
+- [ ] **Step 3: Detect active special without affecting schedule**
 
 ```js
 maybeAnnounceActiveSpecial() {
@@ -720,40 +675,42 @@ maybeAnnounceActiveSpecial() {
 }
 ```
 
-The callback is presentation-only; it must not affect scheduling.
+Call after initial queue fill and after queue advancement/reconciliation.
 
-- [ ] **Step 4: Wire 1.5-second non-modal callout in app UI**
+- [ ] **Step 4: Wire non-modal 1.5-second callout**
 
-Generalize `flashCallout(text, duration = 760, className = '')`, then wire:
+Generalize:
+
+```js
+function flashCallout(text, duration = 760, className = '') {
+  // reset classes/content, add className, show, remove after duration
+}
+```
+
+Callbacks:
 
 ```js
 onEnduranceSpecialReady: ({ label }) => flashCallout(label, 1500, 'is-special-ready'),
 onEndurancePalette: () => flashCallout('NOWY KOLOR', 1100, 'is-endurance-stage'),
 ```
 
-CSS positions `.combo-callout.is-special-ready` nearer the launcher without blocking pointer events. Preserve `aria-live` and reduced-motion behavior.
+CSS moves `.is-special-ready` nearer launcher, keeps `pointer-events:none`, and respects reduced motion.
 
 - [ ] **Step 5: Run GREEN**
 
 ```bash
 node pixel-art.test.mjs
 node endurance-specials.test.mjs
-node endurance-style.test.mjs
 node endurance-runtime.test.mjs
+node endurance-style.test.mjs
 ```
 
-Expected: PASS.
-
-- [ ] **Step 6: Add the new test to CI and commit**
-
-Add to `.github/workflows/ci.yml`:
+- [ ] **Step 6: Add CI step and commit**
 
 ```yaml
 - name: Endurance special readability tests
   run: node endurance-specials.test.mjs
 ```
-
-Then:
 
 ```bash
 git add src/pixel-art.mjs src/game-renderer.mjs src/endurance-game.mjs src/app.mjs styles/endurance.css pixel-art.test.mjs endurance-specials.test.mjs .github/workflows/ci.yml
@@ -762,23 +719,20 @@ git commit -m "feat: make Endurance specials readable at a glance"
 
 ---
 
-### Task 7: Build deterministic headless balance harness and run the parameter study
+### Task 7: Build and run the deterministic balance harness
 
 **Files:**
 - Create: `tools/endurance-balance.mjs`
 - Create: `endurance-balance.test.mjs`
 - Modify: `.github/workflows/ci.yml`
-- Generate during verification: `artifacts/endurance-balance.json`
-- Generate during verification: `artifacts/endurance-balance.md`
+- Generate for review: `artifacts/endurance-balance.json`, `artifacts/endurance-balance.md`
 
 **Interfaces:**
 - CLI: `node tools/endurance-balance.mjs --runs 250 --seed 1337 --output artifacts/endurance-balance`
-- Exports for tests: `simulateRun`, `runMatrix`, `summarizeResults`, `classifyCandidate`.
-- Player profiles: `casual`, `average`, `strong`.
+- Exports: `simulateRun`, `runMatrix`, `summarizeResults`, `classifyCandidate`.
+- Profiles: `casual`, `average`, `strong`.
 
-- [ ] **Step 1: Write RED determinism/statistics tests**
-
-Create `endurance-balance.test.mjs`:
+- [ ] **Step 1: Write RED determinism test**
 
 ```js
 import assert from 'node:assert/strict';
@@ -793,163 +747,136 @@ const config = {
   comboCap: 2.0,
 };
 
-const a = simulateRun({ seed: 42, profile: 'average', config });
-const b = simulateRun({ seed: 42, profile: 'average', config });
-assert.deepEqual(a, b, 'fixed seed/profile/config must be deterministic');
+assert.deepEqual(
+  simulateRun({ seed: 42, profile: 'average', config }),
+  simulateRun({ seed: 42, profile: 'average', config }),
+);
 
-const matrix = runMatrix({ runs: 4, seed: 99, configs: [config], profiles: ['casual', 'average', 'strong'] });
-assert.equal(matrix.length, 12);
-const summary = summarizeResults(matrix);
+const rows = runMatrix({ runs: 4, seed: 99, configs: [config], profiles: ['casual', 'average', 'strong'] });
+assert.equal(rows.length, 12);
+const summary = summarizeResults(rows);
 assert.equal(summary.length, 3);
-for (const row of summary) {
+summary.forEach((row) => {
   assert.ok(Number.isFinite(row.medianSurvivalMs));
   assert.ok(Number.isFinite(row.missRate));
-}
+});
 ```
 
-Run:
+- [ ] **Step 2: Define stable player-speed assumptions**
 
-```bash
-node endurance-balance.test.mjs
-```
-
-Expected: FAIL because the harness does not exist.
-
-- [ ] **Step 2: Implement simulation around pure board rules, not Canvas physics**
-
-The harness must use `createEnduranceGeometry`, row generation, `resolveShotOnGrid`, seeded RNG, palette timing, special schedule, and combo scoring. It should choose candidate legal snap cells according to stable profile heuristics rather than simulate mouse pixels.
-
-Profile intent:
+The headless harness needs time to test 60/120 thresholds. Use deterministic time-per-shot with small seeded jitter; browser playtest later validates whether these assumptions feel reasonable:
 
 ```js
 const PROFILE = {
-  casual:  { bestMoveChance: .45, dropWeight: .25, specialAwareness: .35 },
-  average: { bestMoveChance: .72, dropWeight: .60, specialAwareness: .70 },
-  strong:  { bestMoveChance: .92, dropWeight: 1.00, specialAwareness: .95 },
+  casual:  { bestMoveChance: .45, dropWeight: .25, specialAwareness: .35, shotSeconds: 3.6, jitterSeconds: .6 },
+  average: { bestMoveChance: .72, dropWeight: .60, specialAwareness: .70, shotSeconds: 3.0, jitterSeconds: .5 },
+  strong:  { bestMoveChance: .92, dropWeight: 1.00, specialAwareness: .95, shotSeconds: 2.4, jitterSeconds: .4 },
 };
 ```
 
-For each candidate action, clone the grid, call `resolveShotOnGrid`, and score immediate `popped/dropped` with deterministic noise based on the run RNG. When a selected shot removes nothing, call the same row-shift/generation helpers production uses.
+Each resolved shot advances simulated active time by `shotSeconds ± seeded jitter`, never below 1 second.
 
-Each run records at least:
+- [ ] **Step 3: Simulate legal board decisions using production pure helpers**
+
+Use `createEnduranceGeometry`, seeded RNG, `resolveShotOnGrid`, row generation/shift, palette timing, special schedule, and Endurance combo math. Do not simulate Canvas pixels.
+
+For candidate legal snaps, clone the grid, resolve the shot, and score immediate pops/drops. Profile parameters choose between best candidate and plausible weaker candidates. Miss outcome uses exactly the production rule: shift + one generated row.
+
+Each run records:
 
 ```js
 {
-  profile,
-  configId,
-  seed,
-  survivalMs,
-  score,
-  bestCombo,
-  resolvedShots,
-  misses,
-  rowsAdded,
-  missRate,
-  maxLowestRow,
-  at60s,
-  at120s,
-  specials: { guide: {...}, bomb: {...}, rainbow: {...} },
+  profile, configId, seed,
+  survivalMs, score, bestCombo, resolvedShots,
+  misses, rowsAdded, missRate, maxLowestRow,
+  at60s, at120s,
+  specials: { guide: {}, bomb: {}, rainbow: {} },
   lossReason,
 }
 ```
 
-- [ ] **Step 3: Implement bounded matrix generation and labels**
+- [ ] **Step 4: Compare only the agreed bounded matrix**
 
-Generate only the spec matrix:
-
-```js
-palette timings: [50_000,100_000], [60_000,120_000], [70_000,140_000]
-initialRows: 3,4,5
-firstSpecialShot: 10,12
-specialInterval: 7,8,9
-comboStep: .08,.10,.12
-comboCap: 1.8,2.0,2.2
+```text
+palette timings: 50/100, 60/120, 70/140 s
+initial rows: 3, 4, 5
+first special: shot 10 or 12
+special interval: 7, 8, 9
+combo step: .08, .10, .12
+combo cap: 1.8, 2.0, 2.2
 ```
 
-`classifyCandidate()` must use distribution separation plus miss/pressure metrics; it may output `TOO HARD`, `KEEP`, `TOO EASY`, but must never mutate `ENDURANCE_CONFIG`.
+`miss => exactly one row` is never tunable. `classifyCandidate()` outputs `TOO HARD`, `KEEP`, or `TOO EASY` based on distribution separation, miss rate, pressure growth, and special value; it never modifies `ENDURANCE_CONFIG`.
 
-- [ ] **Step 4: Run GREEN and a quick CI-sized sample**
+- [ ] **Step 5: Run GREEN and quick sample**
 
 ```bash
 node endurance-balance.test.mjs
 node tools/endurance-balance.mjs --runs 8 --seed 1337 --output artifacts/endurance-balance-quick
 ```
 
-Expected: deterministic PASS and both JSON/Markdown output files.
-
-- [ ] **Step 5: Add harness test to CI, not the full thousands-run study**
+- [ ] **Step 6: Add only harness tests to regular CI**
 
 ```yaml
 - name: Endurance balance harness tests
   run: node endurance-balance.test.mjs
 ```
 
-The full study is a verification activity, not a mandatory PR test that slows every push.
+Do not put the full thousands-game matrix on every push.
 
-- [ ] **Step 6: Run the full study and review the baseline**
-
-Start with:
+- [ ] **Step 7: Run the full study**
 
 ```bash
 node tools/endurance-balance.mjs --runs 250 --seed 1337 --output artifacts/endurance-balance
 ```
 
-Review the `60/120, 4 rows, 12/8, .10, 2.0` baseline against casual ~60–150 s, average ~2–4 min, strong materially longer. If the harness recommends a nearby parameter set, do **not** silently change production values: record the evidence first and review the single tuning change explicitly.
+Review the `60/120, 4 rows, 12/8, .10, 2.0` baseline against the heuristic ranges: casual ~60–150 s, average ~2–4 min, strong materially longer. Any production tuning change requires explicit evidence in the report and its own test/commit; no silent auto-tuning.
 
-- [ ] **Step 7: Commit harness code only**
+- [ ] **Step 8: Commit harness code**
 
 ```bash
 git add tools/endurance-balance.mjs endurance-balance.test.mjs .github/workflows/ci.yml
 git commit -m "test: add deterministic Endurance balance harness"
 ```
 
-Keep generated `artifacts/` results available for PR evidence unless the repository already tracks such reports.
-
 ---
 
-### Task 8: Replace Endurance browser smoke with v2 gameplay/visual verification
+### Task 8: Replace browser smoke with Endurance v2 playtest coverage
 
 **Files:**
 - Rewrite: `.github/scripts/endurance-smoke.mjs`
-- Modify if needed: `.github/workflows/ci.yml`
+- Modify if necessary: `.github/workflows/ci.yml`
 
 **Interfaces:**
-- Browser smoke remains executable as `node .github/scripts/endurance-smoke.mjs` after a static server is running on port 4173.
-- Screenshots continue under `artifacts/*.png`.
+- Execute after static server: `node .github/scripts/endurance-smoke.mjs`.
+- Screenshots remain under `artifacts/*.png`.
 
-- [ ] **Step 1: Rewrite smoke expectations before production changes are considered complete**
+- [ ] **Step 1: Delete obsolete browser expectations**
 
-Remove all `Runda`, `Do rzędu`, 3-shot cadence, and `data-spatial-stage` assertions. Require the new rule and HUD:
+Remove `Runda`, `Do rzędu`, three-shot countdown, and `data-spatial-stage` assertions. Require intro rule `Pudło = nowy rząd` and HUD `Czas` / `Kolory`.
 
-```js
-assert((await page.locator('.endurance-rule').textContent())?.includes('Pudło = nowy rząd'));
-assert((await page.locator('#statOneLabel').textContent()) !== 'Runda');
-assert((await page.locator('#statTwoLabel').textContent()) !== 'Do rzędu');
-```
+- [ ] **Step 2: Add a narrow test seam for slow active-time milestones if necessary**
 
-- [ ] **Step 2: Add a deterministic browser test hook only if needed for slow milestones**
+Waiting two real minutes in every browser smoke is wasteful. If required, expose an Endurance-only test method only when URL includes `?test=endurance`, for example `window.__enduranceTest.advanceActiveMs(ms)`. It may only advance Endurance active time and must not affect campaign or normal production flow.
 
-Prefer runtime APIs already visible through DOM/state. If waiting 120 real seconds makes smoke wasteful, add an Endurance-only test seam guarded by query string, e.g. `?test=endurance`, that lets the smoke advance active elapsed time through a narrow method. It must not be reachable in normal play logic and must not alter campaign behavior.
+- [ ] **Step 3: Verify gameplay/visual contracts**
 
-- [ ] **Step 3: Verify real gameplay contracts**
-
-The smoke must cover:
+Browser smoke sequence:
 
 ```text
-1. Open Endurance intro and start.
-2. Screenshot fixed 11/10 start state.
-3. Measure top-row orb/ceiling contact visually or via exposed geometry test marker.
-4. Produce/observe one miss -> exactly one row insertion.
-5. Produce/observe a successful pop or drop -> no row insertion.
-6. Advance active time to 60 s -> colorCount=5 and background transition/callout.
-7. Advance to 120 s -> colorCount=6 and no seventh color later.
-8. Force/observe Guide, Bomb, Rainbow as active shots and capture each screenshot.
-9. Verify each special callout is readable and does not block firing.
-10. Play to a real pressure loss, verify result has no stars/mastery/round, retry.
-11. Repeat entry/start checks at 390x844 with <=1 px horizontal overflow.
+1. Open intro/start; capture fixed 11/10 start.
+2. Confirm top row touches ceiling and board/current/next orbs share smaller scale.
+3. Resolve one miss -> exactly one pressure row.
+4. Resolve one pop/drop success -> no pressure row.
+5. Reach 60 s active time -> 5 colors + NOWY KOLOR + late-day crossfade.
+6. Reach 120 s -> 6 colors + sunset crossfade; later time stays at 6.
+7. Observe/capture Guide, Bomb, Rainbow as active shots.
+8. Verify each 1.5 s explanation is readable and pointer-nonblocking.
+9. Play/force a real pressure loss; result has no stars/mastery/round; retry starts fresh.
+10. Repeat entry/start checks at 390×844 and assert <=1 px horizontal overflow.
 ```
 
-Suggested screenshot names:
+Screenshots:
 
 ```text
 artifacts/endurance-v2-start.png
@@ -963,7 +890,7 @@ artifacts/endurance-v2-result.png
 artifacts/mobile-endurance-v2.png
 ```
 
-- [ ] **Step 4: Run browser smoke locally**
+- [ ] **Step 4: Run Endurance smoke**
 
 ```bash
 python3 -m http.server 4173 >/tmp/balloon-http.log 2>&1 &
@@ -972,16 +899,12 @@ npx playwright install chromium
 node .github/scripts/endurance-smoke.mjs
 ```
 
-Expected: PASS with screenshots and no page/console errors.
-
-- [ ] **Step 5: Run campaign browser smoke too**
+- [ ] **Step 5: Run campaign browser regressions**
 
 ```bash
 node .github/scripts/visual-smoke.mjs
 node .github/scripts/queue-smoke.mjs
 ```
-
-Expected: PASS; campaign visuals/queue remain functional.
 
 - [ ] **Step 6: Commit**
 
@@ -992,17 +915,17 @@ git commit -m "test: verify Endurance v2 in the browser"
 
 ---
 
-### Task 9: Full regression, balance review, exact-head CI, and PR evidence
+### Task 9: Exact-head verification, balance review, and PR evidence
 
 **Files:**
-- No production file should change unless a failing test identifies a real defect.
-- Update PR #2 body/comment only after exact-head verification.
+- No production changes unless a failing check identifies a real defect.
+- Update PR #2 discussion/body only after exact-head verification.
 
 **Interfaces:**
-- Final head remains on `feat/endurance-mode`.
-- `main`, `playable`, and PR merge state remain untouched.
+- Final changes stay on `feat/endurance-mode`.
+- `main`, `playable`, and merge state remain untouched.
 
-- [ ] **Step 1: Run all Node tests used by CI**
+- [ ] **Step 1: Run full Node regression suite**
 
 ```bash
 node balloon.test.js
@@ -1034,8 +957,6 @@ Expected: all PASS.
 
 - [ ] **Step 2: Run syntax checks**
 
-At minimum:
-
 ```bash
 node --check src/endurance-core.mjs
 node --check src/endurance-geometry.mjs
@@ -1048,42 +969,38 @@ node --check src/app.mjs
 node --check tools/endurance-balance.mjs
 ```
 
-Expected: no output/errors.
-
-- [ ] **Step 3: Run the full balance study and inspect distributions**
+- [ ] **Step 3: Run full balance study and inspect report**
 
 ```bash
 node tools/endurance-balance.mjs --runs 250 --seed 1337 --output artifacts/endurance-balance
 ```
 
-Check especially: casual/average/strong median separation, miss rate, rows added, survival around 60/120 s, and relative Bomb/Rainbow/Guide value. Keep production baseline if results are plausible; make only evidence-backed tuning changes, each with its own test update and commit.
+Review casual/average/strong survival separation, miss rate, rows added, behavior across 60/120 s, and relative Guide/Bomb/Rainbow value. Keep baseline unless data supports a nearby alternative.
 
-- [ ] **Step 4: Run browser smoke and visually inspect screenshots**
+- [ ] **Step 4: Run browser smoke and manually inspect all screenshots**
 
-Verify desktop and 390×844 mobile screenshots manually for ceiling contact, smaller consistent orb scale, stage crossfades, special readability, callout placement, result dialog, and overflow.
+Check ceiling contact, 11/10 scale, active/queued projectile scale, background transitions, special readability, callout position, result dialog, and 390×844 overflow.
 
 - [ ] **Step 5: Push exact head and wait for GitHub Actions**
 
-Confirm both `test` and `browser-smoke` jobs are green at the exact SHA.
+Both `test` and `browser-smoke` jobs must be green at the exact SHA.
 
 - [ ] **Step 6: Update PR #2 evidence without merging**
 
-Add a concise PR comment containing:
+PR evidence should include:
 
 ```text
-- exact verified head SHA
-- test job ✅
-- browser-smoke ✅
-- fixed 11/10 / ceiling contact ✅
-- miss => one row / drop-only success => no row ✅
-- 4→5→6 colors at 60/120 s ✅
-- Endurance background transitions ✅
-- Guide/Bomb/Rainbow readability + callouts ✅
-- balance harness summary and selected config ✅
-- desktop + 390×844 visual review ✅
-- main/playable untouched; PR remains draft/unmerged ✅
+exact verified head SHA
+full regression job ✅
+browser-smoke ✅
+fixed 11/10 + ceiling contact ✅
+miss => one row; drop-only success => no row ✅
+4→5→6 colors at 60/120 s ✅
+late-day/sunset background transitions ✅
+Guide/Bomb/Rainbow readability + callouts ✅
+balance harness summary + selected config ✅
+desktop + 390×844 visual review ✅
+main/playable untouched; PR remains draft/unmerged ✅
 ```
 
-- [ ] **Step 7: Final commit only if documentation changed**
-
-If no tracked report/doc was added, do not create an empty cleanup commit.
+- [ ] **Step 7: Do not create a cleanup commit unless tracked files actually changed**
