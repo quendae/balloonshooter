@@ -1,4 +1,5 @@
 import { GameRenderer } from './game-renderer.mjs';
+import './frost-shot-runtime.mjs';
 
 const ENDURANCE_SKIES = [
   { world: 'meadow', atmosphere: { timeOfDay: 'day', weather: 'clear', intensity: .15 } },
