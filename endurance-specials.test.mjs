@@ -60,6 +60,7 @@ function fakeCanvas() {
 }
 
 assert.equal(typeof pixelArt.drawSpecialOrb, 'function', 'specials need a dedicated full-orb renderer');
+assert.equal(typeof pixelArt.drawPixelFrostOverlay, 'function', 'Frost needs a dedicated non-opaque overlay');
 const pixelSource = await fs.readFile(new URL('./src/pixel-art.mjs', import.meta.url), 'utf8');
 for (const marker of ['drawBombOrb', 'drawRainbowOrb', 'drawGuideOrb']) {
   assert.ok(pixelSource.includes(marker), `missing distinct special treatment: ${marker}`);
@@ -74,6 +75,11 @@ assert.ok(guideRecording.calls.stroke >= 2, 'Guide should stay recognizable thro
 const rendererSource = await fs.readFile(new URL('./src/game-renderer.mjs', import.meta.url), 'utf8');
 assert.ok(rendererSource.includes('drawPixelSpecial'), 'shared shot path must render the delegated special body in launcher, queue and flight');
 assert.ok(rendererSource.includes('this.animationTime'), 'renderer keeps a frame clock for animated shot presentation');
+assert.match(rendererSource, /shot\.weatherType === 'frost'/, 'shared shot path should render Frost in launcher, queue and flight');
+assert.ok(
+  rendererSource.indexOf('drawPixelSpecial') < rendererSource.lastIndexOf('drawPixelFrostOverlay'),
+  'Frost should augment special identity, not replace it',
+);
 
 const events = [];
 const game = new EnduranceGame(fakeCanvas(), {
@@ -102,4 +108,4 @@ game.queue = [{ type: 'guide', color: 2 }];
 assert.equal(game.maybeAnnounceActiveSpecial(), true);
 assert.deepEqual(events.at(-1), { type: 'guide', label: 'GUIDE — pokazuje pełną trajektorię' });
 
-console.log('✓ Endurance special readability, Guide color visibility and callout cooldown');
+console.log('✓ Endurance special readability, Guide color visibility, Frost overlay and callout cooldown');
