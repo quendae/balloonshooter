@@ -119,7 +119,7 @@ test('all authored cells fit the alternating 10/9-column hex board', () => {
 });
 
 test('save normalization recovers safely from invalid or partial data', () => {
-  const emptyEndurance = { bestScore: 0, bestTimeMs: 0, bestRound: 0 };
+  const emptyEndurance = { bestScore: 0, bestTimeMs: 0, bestCombo: 0 };
   assert.deepEqual(normalizeProgress(null), {
     version: 1,
     levels: {},
