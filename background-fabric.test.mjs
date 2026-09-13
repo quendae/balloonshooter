@@ -60,6 +60,16 @@ assert.notEqual(
   'worlds need distinct cached scenes',
 );
 
+const campaignRainKey = backgroundThemeKey({ world: 'meadow', atmosphere: { timeOfDay: 'day', weather: 'rain' } });
+const enduranceRainKey = backgroundThemeKey({ backgroundVariant: 'endurance', world: 'meadow', atmosphere: { timeOfDay: 'day', weather: 'rain' } });
+assert.notEqual(campaignRainKey, enduranceRainKey, 'Endurance weather art must not reuse campaign cache entries');
+const enduranceWeatherKeys = ['clear', 'rain', 'snow', 'frost'].map((weather) => backgroundThemeKey({
+  backgroundVariant: 'endurance',
+  world: 'meadow',
+  atmosphere: { timeOfDay: 'day', weather },
+}));
+assert.equal(new Set(enduranceWeatherKeys).size, 4, 'Endurance weather states need distinct cached scenes');
+
 const scene = createFabricPixelBackground({
   fabricApi: fabric.api,
   documentRef,
@@ -94,8 +104,13 @@ assert.match(indexSource, /background-fabric-runtime\.mjs/, 'Fabric background i
 const runtimeSource = await fs.readFile(new URL('./src/background-fabric-runtime.mjs', import.meta.url), 'utf8');
 assert.match(runtimeSource, /GameRenderer\.prototype\.drawSky/, 'runtime installer should replace only the shared sky renderer');
 assert.match(runtimeSource, /fabricBackgrounds\.draw/, 'runtime sky renderer should prefer cached Fabric pixel backgrounds');
+assert.match(runtimeSource, /drawPixelSnow/, 'runtime weather layer should render snow');
+assert.match(runtimeSource, /drawPixelFrostAmbience/, 'runtime weather layer should render frost ambience');
 
 const backgroundSource = await fs.readFile(new URL('./src/background-fabric.mjs', import.meta.url), 'utf8');
 assert.match(backgroundSource, /imageSmoothingEnabled = false/, 'pixel background cache should use nearest-neighbour scaling');
+assert.match(backgroundSource, /backgroundVariant/, 'Fabric cache should isolate Endurance weather variants');
+assert.match(backgroundSource, /weather === 'snow'/, 'Endurance Fabric palettes should support snow');
+assert.match(backgroundSource, /weather === 'frost'/, 'Endurance Fabric palettes should support frost');
 
-console.log('✓ Fabric pixel background authoring, cache and runtime integration contract');
+console.log('✓ Fabric pixel background authoring, Endurance weather isolation, cache and runtime integration contract');
