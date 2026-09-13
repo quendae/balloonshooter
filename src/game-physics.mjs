@@ -1,4 +1,5 @@
 export const SHOT_SPEED = 460;
+export const MIN_AIM_RADIANS = 0.18;
 
 export function shouldShowTrajectory(shot) {
   return shot?.type === 'guide';
@@ -12,8 +13,26 @@ export function shortAimSegment({ x, y, angle, length = 36, startOffset = 12 }) 
   return { start, end };
 }
 
+export function aimInputMaxY(launchY, margin = 4) {
+  return Number(launchY) - Math.max(0, Number(margin) || 0);
+}
+
 export function clampAimAngle(angle) {
-  return Math.max(-Math.PI + 0.18, Math.min(-0.18, angle));
+  return Math.max(-Math.PI + MIN_AIM_RADIANS, Math.min(-MIN_AIM_RADIANS, angle));
+}
+
+export function projectileCollisionDistance(radius, collisionScale = 1) {
+  const scale = Math.max(.1, Number(collisionScale) || 1);
+  return Number(radius) * 1.86 * scale;
+}
+
+export function projectileCollidesGrid({ grid, geometry, x, y, collisionScale = 1 }) {
+  const threshold = projectileCollisionDistance(geometry.RAD, collisionScale);
+  for (const key of grid.keys()) {
+    const [c, r] = geometry.split(key);
+    if (geometry.dist(x, y, geometry.colX(c, r), geometry.rowY(r)) <= threshold) return true;
+  }
+  return false;
 }
 
 export function toLogicalPoint(clientX, clientY, rect, logicalWidth, logicalHeight) {
