@@ -2,10 +2,25 @@ import { GameRenderer } from './game-renderer.mjs';
 import './frost-shot-runtime.mjs';
 
 const ENDURANCE_SKIES = [
-  { world: 'meadow', atmosphere: { timeOfDay: 'day', weather: 'clear', intensity: .15 } },
-  { world: 'meadow', atmosphere: { timeOfDay: 'late-day', weather: 'breeze', intensity: .35 } },
-  { world: 'meadow', atmosphere: { timeOfDay: 'sunset', weather: 'breeze', intensity: .55 } },
+  { world: 'meadow', atmosphere: { timeOfDay: 'day', intensity: .15 } },
+  { world: 'meadow', atmosphere: { timeOfDay: 'late-day', intensity: .35 } },
+  { world: 'meadow', atmosphere: { timeOfDay: 'sunset', intensity: .55 } },
 ];
+
+function skyWithWeather(base, weather) {
+  const intensity = weather === 'rain'
+    ? .45
+    : weather === 'snow'
+      ? .35
+      : weather === 'frost'
+        ? .32
+        : base.atmosphere.intensity;
+  return {
+    ...base,
+    backgroundVariant: 'endurance',
+    atmosphere: { ...base.atmosphere, weather, intensity },
+  };
+}
 
 export class EnduranceRenderer extends GameRenderer {
   draw(state, time = 0) {
@@ -26,7 +41,7 @@ export class EnduranceRenderer extends GameRenderer {
     ctx.save();
     ctx.translate(shakeX, shakeY);
 
-    this.drawEnduranceSky(state.enduranceAtmosphere, time);
+    this.drawEnduranceSky(state.enduranceAtmosphere, state.enduranceWeather, time);
     if (state?.level) {
       if (!state.projectile && state.status === 'playing' && !state.paused) {
         if (state.trajectory?.length) this.drawAim(state.trajectory, time);
@@ -73,12 +88,12 @@ export class EnduranceRenderer extends GameRenderer {
     this.B = originalBoard;
   }
 
-  drawEnduranceSky(enduranceAtmosphere = {}, time = 0) {
+  drawTimeSky(enduranceAtmosphere = {}, weather = 'clear', time = 0) {
     const stage = Math.max(0, Math.min(ENDURANCE_SKIES.length - 1, Math.floor(Number(enduranceAtmosphere.stage) || 0)));
     const fromStage = Math.max(0, Math.min(stage, Math.floor(Number(enduranceAtmosphere.fromStage) || 0)));
     const progress = Math.max(0, Math.min(1, Number(enduranceAtmosphere.progress) || 0));
-    const toSky = ENDURANCE_SKIES[stage];
-    const fromSky = ENDURANCE_SKIES[fromStage];
+    const toSky = skyWithWeather(ENDURANCE_SKIES[stage], weather);
+    const fromSky = skyWithWeather(ENDURANCE_SKIES[fromStage], weather);
 
     if (stage === fromStage || progress >= 1) {
       this.drawSky(toSky, time);
@@ -94,6 +109,28 @@ export class EnduranceRenderer extends GameRenderer {
     ctx.save();
     ctx.globalAlpha *= progress;
     this.drawSky(toSky, time);
+    ctx.restore();
+  }
+
+  drawEnduranceSky(enduranceAtmosphere = {}, enduranceWeather = {}, time = 0) {
+    const current = enduranceWeather.current || 'clear';
+    const previous = enduranceWeather.previous || current;
+    const progress = Math.max(0, Math.min(1, Number(enduranceWeather.progress) || 0));
+
+    if (previous === current || progress >= 1) {
+      this.drawTimeSky(enduranceAtmosphere, current, time);
+      return;
+    }
+
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalAlpha *= 1 - progress;
+    this.drawTimeSky(enduranceAtmosphere, previous, time);
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalAlpha *= progress;
+    this.drawTimeSky(enduranceAtmosphere, current, time);
     ctx.restore();
   }
 
@@ -113,4 +150,4 @@ export class EnduranceRenderer extends GameRenderer {
   }
 }
 
-export { ENDURANCE_SKIES };
+export { ENDURANCE_SKIES, skyWithWeather };
