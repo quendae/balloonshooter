@@ -29,13 +29,13 @@ Scope: Endurance only for weather mechanics; aiming fix applies to shared aiming
 
 ### Required behavior
 
-- Pointer and touch aiming may extend down to just above the launcher line instead of stopping at Y=242.
-- The final authority remains `clampAimAngle()` at approximately 10° from horizontal on both sides.
+- Pointer and touch aiming may extend down to `LAUNCH_Y - 4` logical pixels instead of stopping at Y=242.
+- Pointer/touch coordinates at or below `LAUNCH_Y - 4` are clamped/accepted for aim calculation but pointer-down directly on/below the launcher line must not fire accidentally.
+- The final angular authority remains `clampAimAngle()` at approximately 10.3° from horizontal on both sides (`0.18 rad`).
 - Keyboard aiming uses the same clamp.
 - Guide trajectory prediction uses the same range and the same collision rules as the actual projectile.
-- The launcher-area exclusion should only prevent accidental clicks directly on/below the launcher, not block shallow legitimate aim vectors.
 
-A practical baseline is an input floor near `LAUNCH_Y - 3..6 logical px`, with tests asserting that pointer coordinates can produce angles at or very near the clamp limit.
+Tests must prove pointer input can reach both shallow clamp limits instead of only testing `clampAimAngle()` in isolation.
 
 ## 2. Endurance weather states
 
@@ -54,14 +54,29 @@ The weather state machine is independent from Endurance palette progression. The
 
 ## 3. Weather timing and determinism
 
-- The first weather transition occurs after a deterministic seeded duration sampled from 25–35 seconds of active Endurance time.
-- Subsequent phases last a deterministic seeded 25–40 seconds.
+- The first weather transition occurs after a deterministic seeded duration sampled in the inclusive range 25,000–35,000 ms of active Endurance time.
+- Subsequent phase durations are sampled in the inclusive range 25,000–40,000 ms.
 - Pausing freezes weather timers exactly like other Endurance active-time systems.
 - The same Endurance seed must produce the same weather sequence and phase durations.
 - A weather state may not repeat immediately.
-- `frost` may not repeat immediately.
-- The scheduler should constrain Frost so it does not dominate a typical run; target Frost occupancy is at most roughly 35–40% of active play time.
-- Weather changes should not mutate a projectile that is already in flight. Shot physics are snapshotted when the shot is fired.
+- Weather changes must not mutate a projectile already in flight. Shot physics are snapshotted when the shot is fired.
+
+### Deterministic Frost occupancy guard
+
+The scheduler tracks accumulated completed/scheduled Frost duration and active scheduled weather duration. For each new phase:
+
+1. Sample the next phase duration from the seeded RNG.
+2. Build candidate states excluding the current state.
+3. If `frost` is a candidate, calculate the projected Frost ratio if this whole sampled phase were Frost:
+
+```txt
+(projectedFrostMs) / (projectedTotalWeatherMs)
+```
+
+4. If that ratio would exceed `0.40`, remove `frost` from the candidate set.
+5. Select uniformly from the remaining candidate states using the same seeded RNG.
+
+The initial Clear phase counts toward total weather time. This gives a hard <=40% scheduled Frost ceiling rather than a vague probability target. Immediate repetition is already forbidden, so Frost cannot occur twice consecutively.
 
 Suggested state-machine API shape:
 
@@ -73,6 +88,8 @@ Suggested state-machine API shape:
   phaseEndsMs: 31_000,
   transitionStartedMs: null,
   transitionDurationMs: 2_200,
+  scheduledWeatherMs: 31_000,
+  scheduledFrostMs: 0,
 }
 ```
 
@@ -167,9 +184,9 @@ Use the existing Fabric.js pixel-background system.
 
 - Cached background themes remain keyed by world/time-of-day/weather/boss as appropriate.
 - Endurance weather supplies `clear`, `rain`, `snow`, or `frost` atmosphere data to the background system.
-- Weather transitions crossfade over about 2.2 seconds.
+- Weather transitions crossfade over exactly 2,200 ms by default.
 - Existing Endurance time-of-day transition (`day -> late-day -> sunset`) remains active and independent.
-- Crossfades must compose cleanly when a weather transition happens near a palette/time-of-day transition.
+- If weather and time-of-day transitions overlap, render the resolved old and new composite themes and interpolate once using the active transition progress; do not stack two alpha fades that darken the scene.
 - Dynamic overlays (rain, snow, fog-like frost ambience if used) remain runtime effects rather than forcing a Fabric scene rebuild every frame.
 - If Fabric is unavailable, the existing fallback renderer must still work.
 
@@ -193,7 +210,7 @@ Expected runtime additions include:
 - per-shot `collisionScale` snapshot,
 - optional weather transition/callout bookkeeping.
 
-`EnduranceGame.getSnapshot()` should expose enough weather state for HUD/tests, e.g.:
+`EnduranceGame.getSnapshot()` must expose public weather state for HUD/tests at minimum:
 
 ```js
 {
@@ -203,7 +220,7 @@ Expected runtime additions include:
 }
 ```
 
-The precise field names are implementation details, but tests and UI must not need to inspect private internals.
+Additional internal fields are implementation details; UI/tests must not inspect private scheduler internals.
 
 ## 10. Collision architecture
 
@@ -215,7 +232,7 @@ Refactor toward a shared collision predicate/helper used by:
 - short aim preview,
 - Guide full trajectory preview.
 
-The helper should accept an effective projectile collision scale. Board-orb positions and geometry remain unchanged.
+The helper accepts an effective projectile collision scale. Board-orb positions and geometry remain unchanged.
 
 The current campaign behavior remains the default by passing `1.00`.
 
@@ -246,7 +263,7 @@ Success criteria:
 
 - Frost is measurably useful but not dominant.
 - Average-player survival should not jump enough to trivialize pressure.
-- Frost occupancy should remain below the intended ~35–40% ceiling in normal-length runs.
+- Frost occupancy must respect the <=40% scheduled-time guard.
 - `0.82` remains the preferred default unless the data shows it is materially too weak or too strong.
 
 ## 12. Tests
@@ -259,8 +276,7 @@ Add or extend tests for:
 - keyboard still clamps to the same minimum angle;
 - seeded weather sequence and durations are reproducible;
 - no immediate weather repeat;
-- no back-to-back Frost;
-- Frost occupancy guard;
+- Frost scheduled-time ratio never exceeds 0.40;
 - pause freezes weather phase timing;
 - projectile snapshots current weather at fire time;
 - weather changing mid-flight does not mutate that projectile;
@@ -306,6 +322,7 @@ Before declaring complete:
 
 - Existing campaign authored themes/weather remain unchanged.
 - Existing campaign wind/lightning behavior remains unchanged.
+- Campaign receives only the corrected shared shallow aiming input range; its authored levels and physics remain otherwise unchanged.
 - Existing Endurance scoring, row-pressure rule, color thresholds, special schedule, records, and save schema remain unchanged unless weather state needs transient runtime-only data.
 - No save migration is required for transient weather state.
 - Fabric failure falls back to the previous renderer.
