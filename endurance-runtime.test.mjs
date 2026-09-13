@@ -48,91 +48,95 @@ function fakeCanvas() {
   };
 }
 
-const callbacks = { states: 0, rows: 0 };
+const callbacks = { states: 0, rows: 0, palettes: [] };
 const game = new EnduranceGame(fakeCanvas(), {
   onState: () => { callbacks.states += 1; },
   onEnduranceRow: () => { callbacks.rows += 1; },
+  onEndurancePalette: (event) => { callbacks.palettes.push(event); },
 }, { config: ENDURANCE_CONFIG });
 
 game.start('test-seed');
-assert.equal(game.round, 1);
-assert.equal(game.shotsInRound, 0);
+const start = game.getSnapshot();
+assert.equal(start.colorCount, 4);
+assert.equal(start.combo, 0);
+assert.equal(start.bestCombo, 0);
+assert.equal(start.rowsAdded, 0);
 assert.equal(new Set([...game.grid.keys()].map((key) => game.B.split(key)[1])).size, 4);
 assert.equal(game.status, 'playing');
-assert([1, 2, 3, 4].includes(game.pickColor()));
-assert.equal(game.getSnapshot().shotsUntilRow, 3);
+assert.equal('round' in start, false);
+assert.equal('shotsUntilRow' in start, false);
+assert.equal('spatialStage' in start, false);
 
+const rowsBefore = callbacks.rows;
 game.afterResolvedEnduranceShot({ popped: 3, dropped: 0, turnScore: 30 });
-game.afterResolvedEnduranceShot({ popped: 0, dropped: 0, turnScore: 0 });
-assert.equal(game.round, 1);
-assert.equal(game.shotsInRound, 2);
-assert.equal(game.getSnapshot().shotsUntilRow, 1);
-game.afterResolvedEnduranceShot({ popped: 0, dropped: 0, turnScore: 0 });
-assert.equal(game.round, 2);
-assert.equal(game.shotsInRound, 0);
-assert.equal(callbacks.rows, 1);
-assert.equal(game.getSnapshot().shotsUntilRow, 3);
+assert.equal(callbacks.rows, rowsBefore);
+assert.equal(game.combo, 1);
+assert.equal(game.bestCombo, 1);
+assert.equal(game.score, 30);
 
-const before = game.score;
-game.clearBonusArmed = true;
-game.grid.clear();
-game.applyEnduranceClearBonus();
-assert(game.score > before);
-const once = game.score;
-game.applyEnduranceClearBonus();
-assert.equal(game.score, once);
-assert.equal(game.status, 'playing', 'empty Endurance board is a bonus state, not a win/loss');
+game.afterResolvedEnduranceShot({ popped: 0, dropped: 4, turnScore: 100 });
+assert.equal(callbacks.rows, rowsBefore, 'drop-only success must not add pressure');
+assert.equal(game.combo, 2);
+assert.equal(game.bestCombo, 2);
+assert.equal(game.score, 140, 'second success uses the 1.1x Endurance combo multiplier');
+
+const lowest = game.B.lowestRow(game.grid);
+game.afterResolvedEnduranceShot({ popped: 0, dropped: 0, turnScore: 0 });
+assert.equal(callbacks.rows, rowsBefore + 1);
+assert.equal(game.rowsAdded, 1);
+assert.equal(game.misses, 1);
+assert.equal(game.combo, 0);
+assert.equal(game.B.lowestRow(game.grid), lowest + 1);
+
+const paletteGame = new EnduranceGame(fakeCanvas(), {
+  onEndurancePalette: (event) => callbacks.palettes.push(event),
+}, { config: ENDURANCE_CONFIG });
+paletteGame.start('palette-seed');
+paletteGame.elapsedMs = 59_999;
+paletteGame.update(.001);
+assert.equal(paletteGame.getSnapshot().colorCount, 5);
+assert.equal(paletteGame.paletteStage, 1);
+paletteGame.setPaused(true);
+const frozen = paletteGame.elapsedMs;
+paletteGame.update(10);
+assert.equal(paletteGame.elapsedMs, frozen, 'pause freezes active time');
+paletteGame.setPaused(false);
+paletteGame.elapsedMs = 119_999;
+paletteGame.update(.001);
+assert.equal(paletteGame.getSnapshot().colorCount, 6);
+paletteGame.elapsedMs = 500_000;
+assert.equal(paletteGame.getSnapshot().colorCount, 6, 'palette never grows beyond six colors');
+
+const clearGame = new EnduranceGame(fakeCanvas(), {}, { config: ENDURANCE_CONFIG });
+clearGame.start('clear-seed');
+const beforeClear = clearGame.score;
+clearGame.clearBonusArmed = true;
+clearGame.grid.clear();
+assert.equal(clearGame.applyEnduranceClearBonus(), true);
+assert.equal(clearGame.score, beforeClear + 1000);
+const once = clearGame.score;
+assert.equal(clearGame.applyEnduranceClearBonus(), false);
+assert.equal(clearGame.score, once);
+assert.equal(clearGame.status, 'playing', 'empty board is a bonus state, not a terminal state');
 
 const doomed = new EnduranceGame(fakeCanvas(), {}, { config: ENDURANCE_CONFIG });
 doomed.start('doomed');
 const bottom = doomed.B.MAXROW;
 doomed.grid = new Map([[doomed.B.key(0, bottom), 1]]);
-doomed.shotsInRound = 2;
 doomed.afterResolvedEnduranceShot({ popped: 0, dropped: 0, turnScore: 0 });
-assert.equal(doomed.status, 'lost', 'row overflow should end Endurance exactly at pressure limit');
+assert.equal(doomed.status, 'lost', 'a miss that overflows fixed capacity ends Endurance');
 
-const fastConfig = {
-  ...ENDURANCE_CONFIG,
-  expansionTimesSeconds: [1, 2, 3],
-  laterExpansionIntervalSeconds: 1,
-  adaptiveExpansionWindowSeconds: 0,
-  zoomDurationSeconds: .1,
-};
-const expanding = new EnduranceGame(fakeCanvas(), {}, { config: fastConfig });
-expanding.start('expansion-seed');
-const initialRadius = expanding.B.RAD;
-const initialGridSize = expanding.grid.size;
-expanding.elapsedMs = 1_000;
-expanding.maybeAdvanceDifficultyStage();
-assert.equal(expanding.difficultyStage, 1);
-assert(expanding.pendingExpansion, 'first timed stage should begin a spatial zoom');
-assert.equal(expanding.spatialStage, 0, 'new geometry is not authoritative before zoom finishes');
-assert.equal(expanding.renderState().transitionCells.length, initialGridSize);
+const queueGame = new EnduranceGame(fakeCanvas(), {}, { config: ENDURANCE_CONFIG });
+queueGame.start('special-seed');
+assert.equal(queueGame.queue.some((shot) => shot.type !== 'normal'), false);
+while (queueGame.issuedShots < 13) queueGame.nextShot();
+const scheduled = queueGame.nextShot();
+assert.ok(['normal', 'guide', 'bomb', 'rainbow'].includes(scheduled.type));
 
-const shotsBefore = expanding.shotsInRound;
-expanding.shoot();
-assert.equal(expanding.projectile, null, 'firing is locked during zoom');
-assert.equal(expanding.shotsInRound, shotsBefore);
+const snapshot = game.getSnapshot();
+assert.equal(snapshot.resolvedShots, 3);
+assert.equal(snapshot.rowsAdded, 1);
+assert.equal(snapshot.bestCombo, 2);
+assert.equal(snapshot.colorCount, 4);
 
-expanding.setPaused(true);
-const elapsedBeforePause = expanding.elapsedMs;
-const transitionBeforePause = expanding.pendingExpansion.elapsed;
-expanding.update(.05);
-assert.equal(expanding.elapsedMs, elapsedBeforePause, 'pause freezes active run time');
-assert.equal(expanding.pendingExpansion.elapsed, transitionBeforePause, 'pause freezes zoom animation');
-expanding.setPaused(false);
-
-expanding.update(.09);
-assert.equal(expanding.spatialStage, 0);
-expanding.update(.02);
-assert.equal(expanding.spatialStage, 1);
-assert(expanding.B.RAD < initialRadius);
-assert.equal(expanding.shotsInRound, shotsBefore, 'zoom must not reset the three-shot cadence');
-assert.equal(expanding.pendingExpansion, null);
-
-const stageBefore = expanding.difficultyStage;
-expanding.elapsedMs = 99_000;
-expanding.update(.033);
-assert.equal(expanding.difficultyStage, stageBefore + 1, 'one active frame advances at most one difficulty stage');
-
-console.log('✓ Endurance round runtime and timed expansion');
+console.log('✓ Endurance v2 miss-pressure runtime');
