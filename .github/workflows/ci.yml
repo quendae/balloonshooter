@@ -36,6 +36,8 @@ jobs:
         run: node endurance-renderer.test.mjs
       - name: Endurance runtime tests
         run: node endurance-runtime.test.mjs
+      - name: Endurance weather tests
+        run: node endurance-weather.test.mjs
       - name: Endurance save migration
         run: node save.test.mjs
       - name: Endurance UI contract
@@ -79,6 +81,7 @@ jobs:
           node --check src/background-fabric-runtime.mjs
           node --check src/endurance-renderer.mjs
           node --check src/endurance-game.mjs
+          node --check src/endurance-weather.mjs
           node --check src/levels.mjs
           node --check src/save.mjs
           node --check src/game-physics.mjs
