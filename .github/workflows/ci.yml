@@ -42,6 +42,8 @@ jobs:
         run: node endurance-ui.test.mjs
       - name: Endurance visual contract
         run: node endurance-style.test.mjs
+      - name: Fabric pixel backgrounds
+        run: node background-fabric.test.mjs
       - name: Endurance special readability tests
         run: node endurance-specials.test.mjs
       - name: Endurance balance harness tests
@@ -73,6 +75,7 @@ jobs:
           node --check src/endurance-core.mjs
           node --check src/endurance-geometry.mjs
           node --check src/shot-resolution.mjs
+          node --check src/background-fabric.mjs
           node --check src/endurance-renderer.mjs
           node --check src/endurance-game.mjs
           node --check src/levels.mjs
