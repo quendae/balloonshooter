@@ -47,15 +47,6 @@ const OBJECT_BITMAPS = {
   ].join('/'),
 };
 
-const SPECIAL_BITMAPS = {
-  bomb: [
-    '0000006600','0000066000','0000110000','0001111000','0012222100','0122332210','0122222210','0122222210','0012222100','0001111000',
-  ].join('/'),
-  rainbow: [
-    '0000000000','0011111100','0122222210','1233333321','2344444432','3455555543','4500000054','5000000005','0000000000','0000000000',
-  ].join('/'),
-};
-
 export function decodeBitmap(bitmap) {
   const rows = String(bitmap || '').split('/');
   const width = rows[0]?.length || 0;
@@ -166,7 +157,7 @@ function specialCircle(ctx, fill, outline, lineWidth = 2) {
   ctx.strokeStyle = outline;
   ctx.lineWidth = lineWidth;
   ctx.beginPath();
-  ctx.arc(0, 0, 11, 0, Math.PI * 2);
+  ctx.arc(0, 0, 12, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
 }
@@ -179,11 +170,11 @@ function drawBombOrb(ctx, x, y, scale = 1, time = 0) {
   specialCircle(ctx, '#252d39', '#0b1119', 2.2);
   ctx.fillStyle = '#424c5c';
   ctx.beginPath();
-  ctx.arc(-3.5, -3.5, 4.8, 0, Math.PI * 2);
+  ctx.arc(-3.5, -3.5, 5, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = '#ffb52b';
   ctx.beginPath();
-  ctx.arc(2, 2, 4 + pulse * 1.2, 0, Math.PI * 2);
+  ctx.arc(2, 2, 4 + pulse * 1.3, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = '#fff1a8';
   ctx.beginPath();
@@ -192,10 +183,10 @@ function drawBombOrb(ctx, x, y, scale = 1, time = 0) {
   ctx.strokeStyle = '#1b2430';
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(5, -7); ctx.quadraticCurveTo(8, -12, 10, -10);
+  ctx.moveTo(5, -7); ctx.quadraticCurveTo(8, -13, 10, -11);
   ctx.stroke();
   ctx.fillStyle = pulse > .55 ? '#fff27c' : '#ff7a32';
-  ctx.fillRect(9, -12, 2.5, 2.5);
+  ctx.fillRect(9, -13, 2.5, 2.5);
   ctx.restore();
 }
 
@@ -209,20 +200,20 @@ function drawRainbowOrb(ctx, x, y, scale = 1, time = 0) {
     ctx.fillStyle = colors[i];
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.arc(0, 0, 11, (i / colors.length) * Math.PI * 2 - Math.PI / 2, ((i + 1) / colors.length) * Math.PI * 2 - Math.PI / 2);
+    ctx.arc(0, 0, 12, (i / colors.length) * Math.PI * 2 - Math.PI / 2, ((i + 1) / colors.length) * Math.PI * 2 - Math.PI / 2);
     ctx.closePath();
     ctx.fill();
   }
   ctx.strokeStyle = '#f8fbff';
   ctx.beginPath();
-  ctx.arc(0, 0, 11, 0, Math.PI * 2);
+  ctx.arc(0, 0, 12, 0, Math.PI * 2);
   ctx.stroke();
-  const shimmer = ((time * .018) % 20) - 10;
+  const shimmer = ((time * .018) % 22) - 11;
   ctx.globalAlpha = .55;
   ctx.strokeStyle = '#ffffff';
   ctx.lineWidth = 1.4;
   ctx.beginPath();
-  ctx.moveTo(shimmer - 3, -7); ctx.lineTo(shimmer + 3, 7);
+  ctx.moveTo(shimmer - 3, -8); ctx.lineTo(shimmer + 3, 8);
   ctx.stroke();
   ctx.globalAlpha = 1;
   ctx.fillStyle = 'rgba(255,255,255,.8)';
@@ -246,10 +237,10 @@ function drawGuideOrb(ctx, x, y, scale = 1, time = 0) {
   ctx.strokeStyle = '#164d72';
   ctx.lineWidth = 1.2;
   ctx.beginPath();
-  ctx.moveTo(-9, 0); ctx.lineTo(-4, 0);
-  ctx.moveTo(9, 0); ctx.lineTo(4, 0);
-  ctx.moveTo(0, -9); ctx.lineTo(0, -4);
-  ctx.moveTo(0, 9); ctx.lineTo(0, 4);
+  ctx.moveTo(-10, 0); ctx.lineTo(-4, 0);
+  ctx.moveTo(10, 0); ctx.lineTo(4, 0);
+  ctx.moveTo(0, -10); ctx.lineTo(0, -4);
+  ctx.moveTo(0, 10); ctx.lineTo(0, 4);
   ctx.stroke();
   ctx.fillStyle = '#164d72';
   ctx.fillRect(-1.2, -1.2, 2.4, 2.4);
@@ -264,23 +255,8 @@ export function drawSpecialOrb(ctx, type, x, y, scale = 1, time = 0) {
 }
 
 export function drawPixelSpecial(ctx, type, x, y) {
-  if (type === 'bomb') {
-    drawBitmap(ctx, SPECIAL_BITMAPS.bomb, { 1: '#121A28', 2: '#303A4A', 3: '#FFFFFF', 6: '#FFD24C' }, x, y, 1);
-  } else if (type === 'rainbow') {
-    drawBitmap(ctx, SPECIAL_BITMAPS.rainbow, { 1: '#E84B5B', 2: '#F4C542', 3: '#55B95F', 4: '#3E8FE8', 5: '#8B59D5' }, x, y, 1);
-  } else if (type === 'guide') {
-    ctx.fillStyle = '#F8FCFF';
-    const px = Math.round(x);
-    const py = Math.round(y);
-    ctx.fillRect(px - 11, py - 11, 7, 2);
-    ctx.fillRect(px - 11, py - 11, 2, 7);
-    ctx.fillRect(px + 4, py - 11, 7, 2);
-    ctx.fillRect(px + 9, py - 11, 2, 7);
-    ctx.fillRect(px - 11, py + 9, 7, 2);
-    ctx.fillRect(px - 11, py + 4, 2, 7);
-    ctx.fillRect(px + 4, py + 9, 7, 2);
-    ctx.fillRect(px + 9, py + 4, 2, 7);
-  }
+  const time = Number(globalThis.performance?.now?.()) || 0;
+  return drawSpecialOrb(ctx, type, x, y, 1, time);
 }
 
 export function drawPixelLauncher(ctx, x, y) {
