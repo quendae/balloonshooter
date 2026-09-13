@@ -93,6 +93,38 @@ function drawPixelRain(ctx, time, width, height, intensity, mode) {
   ctx.restore();
 }
 
+function drawPixelSnow(ctx, time, width, height, intensity) {
+  const baseAlpha = ctx.globalAlpha;
+  ctx.save();
+  ctx.fillStyle = '#f1fbff';
+  const count = 34;
+  for (let i = 0; i < count; i += 1) {
+    const speed = .018 + (i % 4) * .004;
+    const x = Math.round(((i * 43 + time * speed + Math.sin(time * .0007 + i) * 5) % (width + 20)) - 10);
+    const y = Math.round(((i * 67 + time * speed * 1.7) % (height + 24)) - 12);
+    ctx.globalAlpha = baseAlpha * (.24 + intensity * .24 + (i % 3) * .04);
+    const size = i % 7 === 0 ? 2 : 1;
+    ctx.fillRect(x, y, size, size);
+  }
+  ctx.restore();
+}
+
+function drawPixelFrostAmbience(ctx, time, width, height, intensity) {
+  const baseAlpha = ctx.globalAlpha;
+  ctx.save();
+  ctx.fillStyle = '#d9f7ff';
+  for (let i = 0; i < 18; i += 1) {
+    const phase = Math.sin(time * .003 + i * 1.7);
+    if (phase < .25) continue;
+    const x = (i * 53 + 11) % width;
+    const y = 44 + ((i * 37) % Math.max(1, height - 70));
+    ctx.globalAlpha = baseAlpha * (.08 + intensity * .12) * phase;
+    ctx.fillRect(x, y, i % 4 === 0 ? 2 : 1, 1);
+    if (i % 5 === 0) ctx.fillRect(x, y - 1, 1, 3);
+  }
+  ctx.restore();
+}
+
 function drawWeather(ctx, world, atmosphere, time, width, height) {
   const weather = atmosphere?.weather || 'clear';
   const intensity = Math.max(0, Math.min(1, Number(atmosphere?.intensity) || 0));
@@ -109,6 +141,8 @@ function drawWeather(ctx, world, atmosphere, time, width, height) {
   if (weather === 'fog') drawPixelFog(ctx, time, width, height, intensity);
   if (weather === 'breeze' || weather === 'windy') drawPixelWind(ctx, time, width, intensity, weather === 'windy');
   if (weather === 'rain' || weather === 'heavy-rain' || weather === 'storm') drawPixelRain(ctx, time, width, height, intensity, weather);
+  if (weather === 'snow') drawPixelSnow(ctx, time, width, height, intensity);
+  if (weather === 'frost') drawPixelFrostAmbience(ctx, time, width, height, intensity);
 }
 
 function drawPixelVignette(ctx, width, height, strength = .26) {
