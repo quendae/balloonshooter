@@ -94,5 +94,6 @@ assert.match(indexSource, /background-fabric-runtime\.mjs/, 'Fabric background i
 const runtimeSource = await fs.readFile(new URL('./src/background-fabric-runtime.mjs', import.meta.url), 'utf8');
 assert.match(runtimeSource, /GameRenderer\.prototype\.drawSky/, 'runtime installer should replace only the shared sky renderer');
 assert.match(runtimeSource, /fabricBackgrounds\.draw/, 'runtime sky renderer should prefer cached Fabric pixel backgrounds');
+assert.match(runtimeSource, /imageSmoothingEnabled/, 'pixel background runtime should preserve nearest-neighbour presentation');
 
 console.log('✓ Fabric pixel background authoring, cache and runtime integration contract');
