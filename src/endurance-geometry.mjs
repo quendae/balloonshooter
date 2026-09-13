@@ -2,30 +2,22 @@ import { ENDURANCE_CONFIG } from './endurance-core.mjs';
 
 const LW = 240;
 const LH = 320;
-const Y0 = 48;
 const LAUNCH_Y = 288;
+const FAILURE_MARGIN = 17;
 
-function stageDescriptor(spatialStage = 0) {
-  const stage = Math.max(0, Math.floor(Number(spatialStage) || 0));
-  const evenCols = ENDURANCE_CONFIG.initialEvenCols + stage * ENDURANCE_CONFIG.colsAddedPerSidePerExpansion * 2;
-  const oddCols = evenCols - 1;
-  const rowCount = ENDURANCE_CONFIG.initialMaxRows + stage * ENDURANCE_CONFIG.rowsAddedPerExpansion;
-  const radius = Math.min(12, LW / (2 * evenCols));
-  return { stage, evenCols, oddCols, rowCount, radius };
-}
-
-export function createEnduranceGeometry({ spatialStage = 0, rowPhase = 0 } = {}) {
-  const descriptor = stageDescriptor(spatialStage);
-  const stage = descriptor.stage;
+export function createEnduranceGeometry({ rowPhase = 0 } = {}) {
+  const evenCols = Math.max(2, Math.floor(Number(ENDURANCE_CONFIG.initialEvenCols) || 11));
+  const oddCols = Math.max(1, Math.floor(Number(ENDURANCE_CONFIG.initialOddCols) || (evenCols - 1)));
   const phase = Math.abs(Math.floor(Number(rowPhase) || 0)) % 2;
-  const RAD = descriptor.radius;
+  const RAD = LW / (2 * evenCols);
   const PH = 2 * RAD;
   const PV = Math.sqrt(3) * RAD;
-  const MAXROW = descriptor.rowCount - 1;
-  const leftMargin = (LW - descriptor.evenCols * PH) / 2;
+  const Y0 = RAD;
+  const MAXROW = Math.floor((LAUNCH_Y - FAILURE_MARGIN - RAD - Y0) / PV);
+  const leftMargin = (LW - evenCols * PH) / 2;
   const firstCenterX = leftMargin + RAD;
 
-  const rowCols = (r) => (((r + phase) & 1) ? descriptor.oddCols : descriptor.evenCols);
+  const rowCols = (r) => (((r + phase) & 1) ? oddCols : evenCols);
   const colX = (c, r) => firstCenterX + (((r + phase) & 1) ? RAD : 0) + c * PH;
   const rowY = (r) => Y0 + r * PV;
   const inGrid = (c, r) => r >= 0 && r <= MAXROW && c >= 0 && c < rowCols(r);
@@ -150,14 +142,14 @@ export function createEnduranceGeometry({ spatialStage = 0, rowPhase = 0 } = {})
     LH,
     Y0,
     LAUNCH_Y,
+    FAILURE_MARGIN,
     RAD,
     PH,
     PV,
     MAXROW,
-    stage,
     rowPhase: phase,
-    evenCols: descriptor.evenCols,
-    oddCols: descriptor.oddCols,
+    evenCols,
+    oddCols,
     rowCols,
     colX,
     rowY,
@@ -179,25 +171,9 @@ export function createEnduranceGeometry({ spatialStage = 0, rowPhase = 0 } = {})
   };
 }
 
-export function canExpandSpatially(stage, config = ENDURANCE_CONFIG) {
-  const next = stageDescriptor(Math.max(0, Math.floor(Number(stage) || 0)) + 1);
-  return next.radius >= config.minOrbRadius;
-}
-
-export function remapGridForExpansion(grid) {
-  const remapped = new Map();
-  for (const [item, color] of grid) {
-    const index = item.indexOf(',');
-    const c = +item.slice(0, index);
-    const r = +item.slice(index + 1);
-    remapped.set(`${c + 1},${r}`, color);
-  }
-  return remapped;
-}
-
 export function shiftGridForNewRow(grid, geometry) {
   const nextRowPhase = geometry.rowPhase ? 0 : 1;
-  const nextGeometry = createEnduranceGeometry({ spatialStage: geometry.stage, rowPhase: nextRowPhase });
+  const nextGeometry = createEnduranceGeometry({ rowPhase: nextRowPhase });
   const shifted = new Map();
   let overflowed = false;
   for (const [item, color] of grid) {
@@ -213,9 +189,10 @@ export function shiftGridForNewRow(grid, geometry) {
 }
 
 export function failureLineReached(grid, geometry) {
+  const failureY = geometry.LAUNCH_Y - FAILURE_MARGIN;
   for (const item of grid.keys()) {
     const [, r] = geometry.split(item);
-    if (geometry.rowY(r) + geometry.RAD >= geometry.LAUNCH_Y - 17) return true;
+    if (geometry.rowY(r) + geometry.RAD >= failureY) return true;
   }
   return false;
 }
