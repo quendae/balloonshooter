@@ -1,6 +1,37 @@
 export const SHOT_SPEED = 460;
 export const MIN_AIM_RADIANS = 0.18;
 
+export function createPointerShotGesture() {
+  return { active: false, pointerId: null, pointerType: null };
+}
+
+export function beginPointerShotGesture(state, pointerId, pointerType = 'mouse') {
+  if (state?.active) return state;
+  return {
+    active: true,
+    pointerId: Number(pointerId),
+    pointerType: pointerType || 'mouse',
+  };
+}
+
+export function ownsPointerShotGesture(state, pointerId) {
+  return Boolean(state?.active && state.pointerId === Number(pointerId));
+}
+
+export function endPointerShotGesture(state, pointerId, { cancelled = false } = {}) {
+  if (!ownsPointerShotGesture(state, pointerId)) {
+    return { state: state || createPointerShotGesture(), shouldShoot: false };
+  }
+  return {
+    state: createPointerShotGesture(),
+    shouldShoot: !cancelled,
+  };
+}
+
+export function shouldShowAimGuide({ coarsePointer = false, gestureActive = false } = {}) {
+  return !coarsePointer || gestureActive;
+}
+
 export function shouldShowTrajectory(shot) {
   return shot?.type === 'guide';
 }
