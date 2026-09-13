@@ -10,7 +10,11 @@ const sharedSource = await fs.readFile(new URL('./src/game-renderer.mjs', import
 
 assert.ok(source.includes('state.geometry || this.B'));
 assert.ok(source.includes('state.enduranceAtmosphere'));
+assert.ok(source.includes('state.enduranceWeather'));
 assert.ok(source.includes('drawEnduranceSky'));
+assert.ok(source.includes('drawTimeSky'));
+assert.ok(source.includes('skyWithWeather'));
+assert.ok(source.includes("backgroundVariant: 'endurance'"));
 assert.ok(source.includes('ENDURANCE_SKIES'));
 assert.ok(source.includes('board.RAD / 12'));
 assert.ok(source.includes('drawOrbRack(state.queue || [], Boolean(state.projectile), boardScale)'));
@@ -18,4 +22,4 @@ assert.ok(source.includes('board.LAUNCH_Y - 17'));
 assert.ok(!source.includes('transitionCells'), 'Endurance v2 no longer renders spatial zoom transition cells');
 assert.ok(sharedSource.includes("timeOfDay === 'late-day'"), 'shared sky renderer should support the Endurance-only late-day atmosphere');
 
-console.log('✓ Endurance atmosphere renderer contract');
+console.log('✓ Endurance atmosphere + dynamic weather renderer contract');
