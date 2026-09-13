@@ -55,10 +55,11 @@ const pixelSource = await fs.readFile(new URL('./src/pixel-art.mjs', import.meta
 for (const marker of ['drawBombOrb', 'drawRainbowOrb', 'drawGuideOrb']) {
   assert.ok(pixelSource.includes(marker), `missing distinct special treatment: ${marker}`);
 }
+assert.ok(pixelSource.includes('drawSpecialOrb(ctx, type, x, y, 1, time)'), 'legacy special hook should delegate to the full-orb renderer');
 
 const rendererSource = await fs.readFile(new URL('./src/game-renderer.mjs', import.meta.url), 'utf8');
-assert.ok(rendererSource.includes('drawSpecialOrb'), 'shared shot renderer must use special bodies');
-assert.ok(rendererSource.includes('this.animationTime'), 'special shimmer/pulse should use renderer animation time');
+assert.ok(rendererSource.includes('drawPixelSpecial'), 'shared shot path must render the delegated special body in launcher, queue and flight');
+assert.ok(rendererSource.includes('this.animationTime'), 'renderer keeps a frame clock for animated shot presentation');
 
 const events = [];
 const game = new EnduranceGame(fakeCanvas(), {
