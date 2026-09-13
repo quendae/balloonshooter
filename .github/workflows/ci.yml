@@ -85,6 +85,7 @@ jobs:
           node --check src/levels.mjs
           node --check src/save.mjs
           node --check src/game-physics.mjs
+          node --check src/pointer-shot-runtime.mjs
           node --check src/storm-core.mjs
           node --check src/storm-feedback.mjs
           node --check src/pixel-art.mjs
