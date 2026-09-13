@@ -55,12 +55,24 @@ function aimFromPointer(game, event) {
 
 function finishGesture(game, event, cancelled) {
   const current = gestureState(game);
-  if (!ownsPointerShotGesture(current, event.pointerId)) return;
+  if (!current.active) return;
 
-  if (!cancelled && game.status === 'playing' && !game.paused) aimFromPointer(game, event);
-  const result = endPointerShotGesture(current, event.pointerId, { cancelled });
+  if (cancelled) {
+    // The active gesture can only be started by a primary pointer. Browsers may
+    // report pointercancel/lostpointercapture with a different synthetic id in
+    // emulation, so any primary cancellation ends the one active gesture.
+    // Secondary pointers are ignored and cannot cancel the player's aim.
+    if (event?.isPrimary === false && !ownsPointerShotGesture(current, event.pointerId)) return;
+    game[GESTURE] = createPointerShotGesture();
+    releaseCapture(game, current.pointerId);
+    return;
+  }
+
+  if (!ownsPointerShotGesture(current, event.pointerId)) return;
+  if (game.status === 'playing' && !game.paused) aimFromPointer(game, event);
+  const result = endPointerShotGesture(current, event.pointerId);
   game[GESTURE] = result.state;
-  releaseCapture(game, event.pointerId);
+  releaseCapture(game, current.pointerId);
 
   if (result.shouldShoot && game.status === 'playing' && !game.paused) game.shoot();
 }
@@ -69,9 +81,11 @@ function ensureFinishListeners(game) {
   if (game[LISTENERS]) return;
   const up = (event) => finishGesture(game, event, false);
   const cancel = (event) => finishGesture(game, event, true);
-  game[LISTENERS] = { up, cancel };
+  const lost = (event) => finishGesture(game, event, true);
+  game[LISTENERS] = { up, cancel, lost };
   game.canvas.addEventListener('pointerup', up);
   game.canvas.addEventListener('pointercancel', cancel);
+  game.canvas.addEventListener('lostpointercapture', lost);
   globalThis.addEventListener?.('pointerup', up);
   globalThis.addEventListener?.('pointercancel', cancel);
 }
@@ -81,6 +95,7 @@ function removeFinishListeners(game) {
   if (!listeners) return;
   game.canvas.removeEventListener('pointerup', listeners.up);
   game.canvas.removeEventListener('pointercancel', listeners.cancel);
+  game.canvas.removeEventListener('lostpointercapture', listeners.lost);
   globalThis.removeEventListener?.('pointerup', listeners.up);
   globalThis.removeEventListener?.('pointercancel', listeners.cancel);
   game[LISTENERS] = null;
