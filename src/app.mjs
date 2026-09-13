@@ -3,6 +3,7 @@ import { applyCampaignResult, evaluateMasteries } from './sky-rescue-core.mjs';
 import { loadProgress, saveProgress } from './save.mjs';
 import { SkyRescueGame } from './game.mjs';
 import { EnduranceGame } from './endurance-game.mjs';
+import { weatherBadgeLabel } from './endurance-weather.mjs';
 import { applyStormFeedbackPatch } from './storm-feedback.mjs';
 import { SkyAudio } from './audio.mjs';
 import {
@@ -21,6 +22,7 @@ const refs = {
   totalMasteries: $('totalMasteries'), campaignProgressBank: $('campaignProgressBank'), soundButton: $('soundButton'),
   continueButton: $('continueButton'), enduranceButton: $('enduranceButton'), homeButton: $('homeButton'), backButton: $('backButton'),
   pauseButton: $('pauseButton'), canvas: $('gameCanvas'), gameWorldLabel: $('gameWorldLabel'), gameLevelLabel: $('gameLevelLabel'),
+  enduranceWeatherBadge: $('enduranceWeatherBadge'),
   objectiveLabel: $('objectiveLabel'), objectiveCurrent: $('objectiveCurrent'), objectiveTarget: $('objectiveTarget'),
   scoreValue: $('scoreValue'), comboValue: $('comboValue'), shotQueue: $('shotQueue'), shotsValue: $('shotsValue'),
   dropValue: $('dropValue'), missesValue: $('missesValue'), statOneLabel: $('statOneLabel'), statTwoLabel: $('statTwoLabel'),
@@ -65,6 +67,12 @@ function destroyActiveGame() {
   activeGame = null;
 }
 
+function resetWeatherBadge() {
+  refs.enduranceWeatherBadge.hidden = true;
+  refs.enduranceWeatherBadge.dataset.weather = 'clear';
+  refs.enduranceWeatherBadge.textContent = '☀ CLEAR';
+}
+
 function createCampaignGame() {
   return new SkyRescueGame(refs.canvas, {
     onState: updateHud,
@@ -102,6 +110,9 @@ function createEnduranceGame() {
     onEnduranceRow: () => { audio.ceiling(); flashCallout('NOWY RZĄD'); },
     onEndurancePalette: () => flashCallout('NOWY KOLOR', 1100, 'is-endurance-stage'),
     onEnduranceSpecialReady: ({ label }) => flashCallout(label, 1500, 'is-special-ready'),
+    onEnduranceWeather: ({ from, to, callout }) => {
+      flashCallout(callout, to === 'frost' || from === 'frost' ? 1500 : 950, 'is-weather');
+    },
   });
 }
 
@@ -158,6 +169,7 @@ function showMap() {
   runMastery = null;
   refs.gameScreen.dataset.mode = activeMode;
   refs.gameScreen.dataset.paletteStage = '0';
+  resetWeatherBadge();
   if (refs.pauseDialog.open) refs.pauseDialog.close();
   if (refs.resultDialog.open) refs.resultDialog.close();
   if (refs.enduranceDialog.open) refs.enduranceDialog.close();
@@ -176,6 +188,7 @@ function startLevel(level) {
   const world = getWorld(level.world);
   refs.gameScreen.dataset.mode = activeMode;
   refs.gameScreen.dataset.paletteStage = '0';
+  resetWeatherBadge();
   refs.mapScreen.hidden = true;
   refs.gameScreen.hidden = false;
   refs.gameWorldLabel.textContent = world?.name || 'Sky Rescue';
@@ -242,8 +255,12 @@ function updateHud(snapshot) {
     refs.shotsValue.textContent = formatDuration(snapshot.elapsedMs);
     refs.dropValue.textContent = String(snapshot.colorCount);
     refs.missesValue.textContent = '';
+    refs.enduranceWeatherBadge.hidden = false;
+    refs.enduranceWeatherBadge.dataset.weather = snapshot.weather || 'clear';
+    refs.enduranceWeatherBadge.textContent = weatherBadgeLabel(snapshot.weather || 'clear');
   } else {
     refs.gameScreen.dataset.paletteStage = '0';
+    resetWeatherBadge();
     if (runMastery && snapshot.shotsUsed > runMastery.lastShotsUsed) {
       if (runMastery.pendingBounced && snapshot.combo > 0) runMastery.successfulBankShots += 1;
       runMastery.pendingBounced = false;
@@ -268,7 +285,7 @@ function updateHud(snapshot) {
 
 function flashCallout(text, duration = 760, className = '') {
   clearTimeout(calloutTimer);
-  refs.comboCallout.classList.remove('is-visible', 'is-special-ready', 'is-endurance-stage');
+  refs.comboCallout.classList.remove('is-visible', 'is-special-ready', 'is-endurance-stage', 'is-weather');
   refs.comboCallout.textContent = text;
   if (className) refs.comboCallout.classList.add(className);
   void refs.comboCallout.offsetWidth;
