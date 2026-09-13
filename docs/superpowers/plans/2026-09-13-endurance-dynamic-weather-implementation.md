@@ -57,11 +57,7 @@ assert.equal(physics.MIN_AIM_RADIANS, .18);
 assert.equal(physics.aimInputMaxY(288), 284);
 assert.ok(Math.abs(physics.clampAimAngle(-.01) + .18) < 1e-9);
 assert.ok(Math.abs(physics.clampAimAngle(-Math.PI + .01) - (-Math.PI + .18)) < 1e-9);
-```
 
-Also add a tiny grid-collision contract using a fake geometry:
-
-```js
 const collisionGeometry = {
   RAD: 12,
   split: (key) => key.split(',').map(Number),
@@ -76,8 +72,6 @@ assert.equal(physics.projectileCollidesGrid({ grid: collisionGrid, geometry: col
 
 - [ ] **Step 2: Run RED**
 
-Run:
-
 ```bash
 node gameplay-polish.test.mjs
 ```
@@ -85,8 +79,6 @@ node gameplay-polish.test.mjs
 Expected: FAIL because the new exports do not exist yet.
 
 - [ ] **Step 3: Implement shared constants/helpers in `src/game-physics.mjs`**
-
-Use these exact contracts:
 
 ```js
 export const MIN_AIM_RADIANS = 0.18;
@@ -116,20 +108,27 @@ export function projectileCollidesGrid({ grid, geometry, x, y, collisionScale = 
 
 - [ ] **Step 4: Replace the pointer/touch Y gate and route collision through the helper**
 
-In `src/game.mjs`, import `aimInputMaxY` and `projectileCollidesGrid`. Remove `const MIN_AIM_Y = 242` and replace both pointer checks with:
+In `src/game.mjs`, import `aimInputMaxY` and `projectileCollidesGrid`, delete `const MIN_AIM_Y = 242`, and change pointer handling to:
 
 ```js
-const maxAimY = aimInputMaxY(this.B.LAUNCH_Y);
-if (p.y <= maxAimY) this.setAim(p.x, p.y);
+onPointerMove(event) {
+  if (this.status !== 'playing') return;
+  const p = toLogicalPoint(event.clientX, event.clientY, this.canvas.getBoundingClientRect(), this.B.LW, this.B.LH);
+  if (p.y <= aimInputMaxY(this.B.LAUNCH_Y)) this.setAim(p.x, p.y);
+}
+
+onPointerDown(event) {
+  if (this.status !== 'playing' || this.paused) return;
+  const p = toLogicalPoint(event.clientX, event.clientY, this.canvas.getBoundingClientRect(), this.B.LW, this.B.LH);
+  if (p.y > aimInputMaxY(this.B.LAUNCH_Y)) return;
+  event.preventDefault();
+  this.setAim(p.x, p.y);
+  this.canvas.focus({ preventScroll: true });
+  this.shoot();
+}
 ```
 
-and for pointer-down:
-
-```js
-if (p.y > aimInputMaxY(this.B.LAUNCH_Y)) return;
-```
-
-Add extensibility hooks:
+Add hooks:
 
 ```js
 projectileMetadataForShot() {
@@ -141,14 +140,14 @@ collisionScaleForAimShot(shot) {
 }
 ```
 
-When firing, snapshot metadata:
+When firing:
 
 ```js
 const metadata = this.projectileMetadataForShot(shot) || {};
 this.projectile = { ...shot, ...metadata, x: this.B.LW / 2, y: this.B.LAUNCH_Y, ...velocity, wind };
 ```
 
-Change `collides` to:
+Replace `collides` with:
 
 ```js
 collides(x, y, collisionScale = 1) {
@@ -156,27 +155,26 @@ collides(x, y, collisionScale = 1) {
 }
 ```
 
-In `update()` pass the projectile snapshot:
+In `update()`:
 
 ```js
-if (this.projectile.y <= ceilingY || this.collides(this.projectile.x, this.projectile.y, this.projectile.collisionScale || 1)) this.land();
+const collisionScale = Math.max(.1, Number(this.projectile.collisionScale) || 1);
+if (this.projectile.y <= ceilingY || this.collides(this.projectile.x, this.projectile.y, collisionScale)) this.land();
 ```
 
-In `renderState()`, compute the preview scale once:
+In `renderState()`:
 
 ```js
 const aimCollisionScale = this.collisionScaleForAimShot(this.queue[0]);
 ```
 
-and use it in both full Guide and short preview callbacks:
+Use that in both preview callbacks:
 
 ```js
 collides: (x, y) => this.collides(x, y, aimCollisionScale),
 ```
 
 - [ ] **Step 5: Verify GREEN and campaign regression**
-
-Run:
 
 ```bash
 node gameplay-polish.test.mjs
@@ -211,11 +209,10 @@ git commit -m "fix: expose shallow aiming and scaled collision"
 - Produces: `weatherShotMetadata(weather, config) -> { weatherType, collisionScale }`
 - Produces: `weatherCallout(previous, current) -> string`
 - Produces: `weatherBadgeLabel(weather) -> string`
-- Later runtime/render/UI tasks consume only these public functions.
 
 - [ ] **Step 1: Write the RED state-machine test**
 
-Create `endurance-weather.test.mjs` with deterministic injected RNG:
+Create `endurance-weather.test.mjs`:
 
 ```js
 import assert from 'node:assert/strict';
@@ -282,7 +279,7 @@ Expected: module-not-found / missing exports.
 
 - [ ] **Step 3: Implement `src/endurance-weather.mjs`**
 
-Define config exactly:
+Use this config:
 
 ```js
 export const ENDURANCE_WEATHER_CONFIG = Object.freeze({
@@ -297,45 +294,59 @@ export const ENDURANCE_WEATHER_CONFIG = Object.freeze({
 });
 ```
 
-State shape:
+Use helpers with these exact semantics:
 
 ```js
-{
-  current: 'clear',
-  previous: null,
-  phaseStartedMs: 0,
-  phaseEndsMs,
-  transitionStartedMs: null,
-  transitionDurationMs: 2200,
-  totalScheduledMs: phaseEndsMs,
-  frostScheduledMs: 0,
+function sampleDuration(rng, minMs, maxMs) {
+  return Math.round(minMs + (maxMs - minMs) * Math.max(0, Math.min(.999999, Number(rng?.()) || 0)));
+}
+
+export function createEnduranceWeatherState({ nowMs = 0, rng = Math.random, config = ENDURANCE_WEATHER_CONFIG } = {}) {
+  const durationMs = sampleDuration(rng, config.firstMinMs, config.firstMaxMs);
+  return {
+    current: 'clear',
+    previous: null,
+    phaseStartedMs: nowMs,
+    phaseEndsMs: nowMs + durationMs,
+    transitionStartedMs: null,
+    transitionDurationMs: config.transitionMs,
+    totalScheduledMs: durationMs,
+    frostScheduledMs: 0,
+  };
 }
 ```
 
-Use one sampled duration per next phase. Rotate eligible types from a seeded offset, excluding the current type. Accept Frost only when:
+For each later phase, sample one `durationMs`, rotate `weatherTypes.filter(type => type !== state.current)` from a seeded index, and reject `frost` when:
 
 ```js
-(state.frostScheduledMs + durationMs) / (state.totalScheduledMs + durationMs) <= config.maxFrostShare
+(state.frostScheduledMs + durationMs) / (state.totalScheduledMs + durationMs) > config.maxFrostShare
 ```
 
-If Frost is rejected, choose the next rotated non-current non-Frost candidate. `advanceEnduranceWeather()` must loop while `nowMs >= phaseEndsMs`, so test jumps and long frames cannot skip state accounting.
-
-Each change object must be:
+If rejected, use the first rotated non-Frost candidate. `advanceEnduranceWeather()` loops while `nowMs >= phaseEndsMs`, returns every crossed change, and each change is:
 
 ```js
 { from, to, atMs, durationMs, callout: weatherCallout(from, to) }
 ```
 
+Use these labels:
+
+```js
+const BADGE = { clear: '☀ CLEAR', rain: '☂ RAIN', snow: '❄ SNOW', frost: '❄ FROST' };
+const CALLOUT = { clear: 'POGODNIE', rain: 'DESZCZ', snow: 'ŚNIEG', frost: 'MRÓZ — mniejsza kolizja pocisków' };
+```
+
+and return `ODWILŻ — normalna wielkość pocisków` whenever `previous === 'frost' && current !== 'frost'`.
+
 - [ ] **Step 4: Add CI coverage and syntax check**
 
-In `.github/workflows/ci.yml` add after Endurance runtime:
+In `.github/workflows/ci.yml` add:
 
 ```yaml
       - name: Endurance weather tests
         run: node endurance-weather.test.mjs
 ```
 
-and syntax:
+and:
 
 ```yaml
           node --check src/endurance-weather.mjs
@@ -366,8 +377,8 @@ git commit -m "feat: add deterministic Endurance weather core"
 - Modify: `endurance-runtime.test.mjs`
 
 **Interfaces:**
-- Consumes: weather functions from Task 2 and projectile metadata hooks from Task 1.
-- Produces callbacks: `onEnduranceWeather({ from, to, callout })`
+- Consumes Task 2 weather functions and Task 1 projectile metadata hooks.
+- Produces callback: `onEnduranceWeather({ from, to, atMs, durationMs, callout })`
 - Produces snapshot fields: `weather`, `previousWeather`, `weatherPhaseEndsMs`, `weatherTransitionProgress`
 - Produces render state: `enduranceWeather: { current, previous, progress, phaseEndsMs }`
 - Overrides: `projectileMetadataForShot(shot)` and `collisionScaleForAimShot(shot)`.
@@ -388,7 +399,7 @@ assert.ok(weatherStart.weatherPhaseEndsMs >= 25_000 && weatherStart.weatherPhase
 
 weatherGame.elapsedMs = weatherStart.weatherPhaseEndsMs - 1;
 weatherGame.update(.001);
-assert.equal(weatherEvents.length, 1, 'crossing the phase boundary should emit exactly one weather event');
+assert.equal(weatherEvents.length, 1);
 assert.notEqual(weatherGame.getSnapshot().weather, 'clear');
 
 weatherGame.setPaused(true);
@@ -401,13 +412,13 @@ weatherGame.weatherState.current = 'frost';
 const frozenMeta = weatherGame.projectileMetadataForShot({ type: 'normal', color: 2 });
 assert.deepEqual(frozenMeta, { weatherType: 'frost', collisionScale: .82 });
 weatherGame.queue = [{ type: 'guide', color: 3 }, ...weatherGame.queue.slice(1)];
-assert.equal(weatherGame.collisionScaleForAimShot(weatherGame.queue[0]), .82, 'Guide preview should inherit active Frost before firing');
+assert.equal(weatherGame.collisionScaleForAimShot(weatherGame.queue[0]), .82);
 
 weatherGame.shoot();
 assert.equal(weatherGame.projectile.weatherType, 'frost');
 assert.equal(weatherGame.projectile.collisionScale, .82);
 weatherGame.weatherState.current = 'clear';
-assert.equal(weatherGame.projectile.collisionScale, .82, 'mid-flight thaw must not mutate the shot snapshot');
+assert.equal(weatherGame.projectile.collisionScale, .82);
 ```
 
 - [ ] **Step 2: Run RED**
@@ -416,28 +427,30 @@ assert.equal(weatherGame.projectile.collisionScale, .82, 'mid-flight thaw must n
 node endurance-runtime.test.mjs
 ```
 
-Expected: FAIL on missing weather snapshot/state/hooks.
+Expected: FAIL on missing weather state/hooks.
 
-- [ ] **Step 3: Add deterministic weather RNG/state to constructor/start**
+- [ ] **Step 3: Add dedicated weather config/RNG/state**
 
-In `EnduranceGame`, import Task 2 helpers and initialize a dedicated weather RNG from the run seed, separate from board/shot RNG:
+Import the Task 2 API and add in the constructor:
 
 ```js
 this.weatherConfig = { ...ENDURANCE_WEATHER_CONFIG, ...(options.weatherConfig || {}) };
+this.weatherState = null;
+this.weatherRng = null;
 ```
 
-In `start(seed)`:
+In `start(seed)` after `runSeed` is resolved:
 
 ```js
 this.weatherRng = createSeededRng(this.hashSeed(`endurance-weather-${runSeed}`));
 this.weatherState = createEnduranceWeatherState({ nowMs: 0, rng: this.weatherRng, config: this.weatherConfig });
 ```
 
-Do not persist this state to save data.
+Do not persist weather state to `save.mjs`.
 
-- [ ] **Step 4: Advance weather only on active Endurance time**
+- [ ] **Step 4: Advance weather on active Endurance time only**
 
-After incrementing `elapsedMs` in `update(dt)`:
+Immediately after `elapsedMs` advances in `update(dt)`:
 
 ```js
 const advanced = advanceEnduranceWeather(this.weatherState, this.elapsedMs, this.weatherRng, this.weatherConfig);
@@ -445,11 +458,9 @@ this.weatherState = advanced.state;
 for (const change of advanced.changes) this.callbacks.onEnduranceWeather?.(change);
 ```
 
-Pause already exits before active time changes; retain that behavior.
+The existing early return for `paused`/non-playing state remains the pause guarantee.
 
-- [ ] **Step 5: Snapshot Frost metadata at shot time and use it for Guide preview**
-
-Add:
+- [ ] **Step 5: Snapshot Frost metadata at shot time and mirror it for Guide preview**
 
 ```js
 projectileMetadataForShot(shot) {
@@ -464,9 +475,7 @@ collisionScaleForAimShot(shot) {
 }
 ```
 
-The parent `shoot()` from Task 1 now freezes this metadata on the projectile.
-
-- [ ] **Step 6: Expose public weather state without leaking private scheduler internals**
+- [ ] **Step 6: Expose public weather state and visual queue metadata**
 
 In `getSnapshot()` add:
 
@@ -477,7 +486,7 @@ weatherPhaseEndsMs: this.weatherState.phaseEndsMs,
 weatherTransitionProgress: weatherTransitionProgress(this.weatherState, this.elapsedMs, this.weatherConfig),
 ```
 
-In `renderState()` clone queue entries for visuals using current weather metadata, but never mutate the real queue:
+In `renderState()`:
 
 ```js
 const base = super.renderState();
@@ -497,9 +506,9 @@ return {
 };
 ```
 
-The projectile remains the frozen object from `shoot()` and must not be overwritten with current weather in `renderState()`.
+Do not overwrite `base.projectile`; it already contains frozen launch-time metadata.
 
-- [ ] **Step 7: Verify GREEN and existing Endurance rules**
+- [ ] **Step 7: Verify GREEN**
 
 ```bash
 node endurance-runtime.test.mjs
@@ -529,19 +538,38 @@ git commit -m "feat: integrate dynamic weather into Endurance runtime"
 
 **Interfaces:**
 - Produces: `drawPixelFrostOverlay(ctx, x, y, time = 0)`
-- `GameRenderer.drawShot()` consumes `shot.weatherType === 'frost'` after drawing the normal orb and any special overlay.
+- `GameRenderer.drawShot()` consumes `shot.weatherType === 'frost'` after drawing the normal orb and special overlay.
 
-- [ ] **Step 1: Add RED visual-contract assertions**
+- [ ] **Step 1: Add RED visual-contract tests**
 
-In `endurance-specials.test.mjs` / `pixel-art.test.mjs`, assert the source exports and uses a Frost overlay after special rendering:
+Add source-order assertions:
 
 ```js
 assert.match(pixelSource, /export function drawPixelFrostOverlay/);
 assert.match(rendererSource, /shot\.weatherType === 'frost'/);
-assert.ok(rendererSource.indexOf('drawPixelSpecial') < rendererSource.indexOf('drawPixelFrostOverlay'), 'Frost should augment special identity, not replace it');
+assert.ok(rendererSource.indexOf('drawPixelSpecial') < rendererSource.indexOf('drawPixelFrostOverlay'));
 ```
 
-Add a fake-context test that verifies the overlay uses strokes/fillRects/arcs but never paints a full 24×24 opaque body rectangle.
+Add a behavior-level fake context in `pixel-art.test.mjs`:
+
+```js
+const calls = [];
+const frostCtx = new Proxy({
+  globalAlpha: 1,
+  save() {}, restore() {}, translate() {}, beginPath() {}, arc(...args) { calls.push(['arc', ...args]); },
+  stroke() { calls.push(['stroke']); },
+  fillRect(...args) { calls.push(['fillRect', ...args]); },
+}, {
+  get(target, prop) {
+    if (prop in target) return target[prop];
+    return target[prop] = () => {};
+  },
+});
+drawPixelFrostOverlay(frostCtx, 0, 0, 0);
+assert.ok(calls.some(([type]) => type === 'arc'));
+assert.ok(calls.filter(([type]) => type === 'fillRect').length >= 4);
+assert.equal(calls.some(([type, x, y, w, h]) => type === 'fillRect' && w >= 20 && h >= 20), false, 'Frost must not cover the orb body');
+```
 
 - [ ] **Step 2: Run RED**
 
@@ -552,9 +580,7 @@ node pixel-art.test.mjs
 
 Expected: FAIL on missing overlay export/use.
 
-- [ ] **Step 3: Implement a thin pixel-art ice rim**
-
-Export from `src/pixel-art.mjs`:
+- [ ] **Step 3: Implement the thin ice rim**
 
 ```js
 export function drawPixelFrostOverlay(ctx, x = 0, y = 0, time = 0) {
@@ -568,17 +594,14 @@ export function drawPixelFrostOverlay(ctx, x = 0, y = 0, time = 0) {
   ctx.arc(0, 0, 10.4, 0, Math.PI * 2);
   ctx.stroke();
   ctx.fillStyle = '#e9fbff';
-  const shards = [[-9,-5,2,3],[8,-4,2,2],[-7,7,2,2],[6,8,2,3]];
-  for (const [sx, sy, w, h] of shards) ctx.fillRect(sx, sy, w, h);
+  for (const [sx, sy, w, h] of [[-9,-5,2,3],[8,-4,2,2],[-7,7,2,2],[6,8,2,3]]) ctx.fillRect(sx, sy, w, h);
   ctx.restore();
 }
 ```
 
-Keep the overlay sparse; do not fill the orb center.
+- [ ] **Step 4: Compose Frost after the special overlay**
 
-- [ ] **Step 4: Compose the overlay in `drawShot()`**
-
-Import `drawPixelFrostOverlay` and, after special drawing:
+Import `drawPixelFrostOverlay` and append to `drawShot()`:
 
 ```js
 if (shot.weatherType === 'frost') {
@@ -590,8 +613,6 @@ if (shot.weatherType === 'frost') {
   ctx.restore();
 }
 ```
-
-This automatically covers active launcher shot, queue preview and projectile because all three already use `drawShot()`.
 
 - [ ] **Step 5: Verify GREEN**
 
@@ -622,25 +643,23 @@ git commit -m "feat: add readable Frost shot overlay"
 - Modify: `background-fabric.test.mjs`
 
 **Interfaces:**
-- Consumes: `state.enduranceAtmosphere` and `state.enduranceWeather` from Task 3.
-- Produces: Endurance sky composition where time-of-day and weather transitions can overlap independently.
+- Consumes `state.enduranceAtmosphere` and `state.enduranceWeather` from Task 3.
+- Produces independent time-of-day + weather crossfades.
 - Fabric cache key remains `world:timeOfDay:weather:boss`.
 
 - [ ] **Step 1: Write RED renderer/background contracts**
 
-Add tests asserting:
-
 ```js
 assert.match(enduranceRendererSource, /enduranceWeather/);
-assert.match(enduranceRendererSource, /previous/);
-assert.match(enduranceRendererSource, /progress/);
 assert.match(backgroundFabricSource, /weather === 'snow'/);
 assert.match(backgroundFabricSource, /weather === 'frost'/);
 assert.match(backgroundRuntimeSource, /drawPixelSnow/);
 assert.match(backgroundRuntimeSource, /drawPixelFrostAmbience/);
-```
 
-Add `backgroundThemeKey` assertions that `clear`, `rain`, `snow`, `frost` produce four distinct cache keys for the same world/time.
+const base = { world: 'meadow', atmosphere: { timeOfDay: 'day', weather: 'clear' } };
+const keys = ['clear', 'rain', 'snow', 'frost'].map((weather) => backgroundThemeKey({ ...base, atmosphere: { ...base.atmosphere, weather } }));
+assert.equal(new Set(keys).size, 4);
+```
 
 - [ ] **Step 2: Run RED**
 
@@ -649,11 +668,11 @@ node endurance-renderer.test.mjs
 node background-fabric.test.mjs
 ```
 
-Expected: FAIL on missing weather-specific composition.
+Expected: FAIL on missing weather composition.
 
-- [ ] **Step 3: Make Fabric static palettes weather-aware**
+- [ ] **Step 3: Make static Fabric palettes weather-aware**
 
-In `paletteFor(level)` keep existing storm handling, then add explicit Endurance weather treatments:
+Add after existing storm/overcast handling in `paletteFor(level)`:
 
 ```js
 if (weather === 'rain') {
@@ -677,22 +696,54 @@ if (weather === 'frost') {
 }
 ```
 
-Do not change campaign weather names/values.
+- [ ] **Step 4: Add deterministic snow/frost runtime overlays**
 
-- [ ] **Step 4: Add runtime snow/frost overlays**
-
-In `src/background-fabric-runtime.mjs`, implement:
+In `src/background-fabric-runtime.mjs` add:
 
 ```js
-function drawPixelSnow(ctx, time, width, height, intensity) { /* seeded-looking arithmetic flakes; no Math.random */ }
-function drawPixelFrostAmbience(ctx, time, width, height, intensity) { /* sparse cyan/white 1–2px glints */ }
+function drawPixelSnow(ctx, time, width, height, intensity) {
+  const baseAlpha = ctx.globalAlpha;
+  ctx.save();
+  ctx.fillStyle = '#f1fbff';
+  const count = 34;
+  for (let i = 0; i < count; i += 1) {
+    const speed = .018 + (i % 4) * .004;
+    const x = Math.round(((i * 43 + time * speed + Math.sin(time * .0007 + i) * 5) % (width + 20)) - 10);
+    const y = Math.round(((i * 67 + time * speed * 1.7) % (height + 24)) - 12);
+    ctx.globalAlpha = baseAlpha * (.24 + intensity * .24 + (i % 3) * .04);
+    const size = i % 7 === 0 ? 2 : 1;
+    ctx.fillRect(x, y, size, size);
+  }
+  ctx.restore();
+}
+
+function drawPixelFrostAmbience(ctx, time, width, height, intensity) {
+  const baseAlpha = ctx.globalAlpha;
+  ctx.save();
+  ctx.fillStyle = '#d9f7ff';
+  for (let i = 0; i < 18; i += 1) {
+    const phase = Math.sin(time * .003 + i * 1.7);
+    if (phase < .25) continue;
+    const x = (i * 53 + 11) % width;
+    const y = 44 + ((i * 37) % Math.max(1, height - 70));
+    ctx.globalAlpha = baseAlpha * (.08 + intensity * .12) * phase;
+    ctx.fillRect(x, y, i % 4 === 0 ? 2 : 1, 1);
+    if (i % 5 === 0) ctx.fillRect(x, y - 1, 1, 3);
+  }
+  ctx.restore();
+}
 ```
 
-Use only deterministic arithmetic based on `i` and `time`, like the existing rain renderer. Route `weather === 'snow'` and `weather === 'frost'` in `drawWeather()`.
+Route in `drawWeather()`:
 
-- [ ] **Step 5: Refactor `EnduranceRenderer.drawEnduranceSky()` to compose both transition axes**
+```js
+if (weather === 'snow') drawPixelSnow(ctx, time, width, height, intensity);
+if (weather === 'frost') drawPixelFrostAmbience(ctx, time, width, height, intensity);
+```
 
-Change base skies so stage defines time-of-day only:
+- [ ] **Step 5: Refactor Endurance sky composition for two independent transitions**
+
+Change `ENDURANCE_SKIES` to time-of-day only:
 
 ```js
 const ENDURANCE_SKIES = [
@@ -702,25 +753,50 @@ const ENDURANCE_SKIES = [
 ];
 ```
 
-Add a helper that injects a weather value into both sides of the time crossfade. Then in `drawEnduranceSky(atmosphere, weather, time)`, if weather transition is active, draw the full time-of-day composition twice under `globalAlpha` `(1-progress)` and `progress`: once with `previous`, once with `current`.
-
-At most four cached sky draws occur only during simultaneous transitions; Fabric scenes are cached, so do not create new Fabric canvases per frame.
-
-- [ ] **Step 6: Pass weather state from `draw()`**
-
-Replace:
+Add:
 
 ```js
-this.drawEnduranceSky(state.enduranceAtmosphere, time);
+function skyWithWeather(base, weather) {
+  const intensity = weather === 'rain' ? .45 : weather === 'snow' ? .35 : weather === 'frost' ? .32 : base.atmosphere.intensity;
+  return { ...base, atmosphere: { ...base.atmosphere, weather, intensity } };
+}
 ```
 
-with:
+Extract the current time crossfade body into:
+
+```js
+drawTimeSky(enduranceAtmosphere, weather, time) {
+  const stage = Math.max(0, Math.min(ENDURANCE_SKIES.length - 1, Math.floor(Number(enduranceAtmosphere.stage) || 0)));
+  const fromStage = Math.max(0, Math.min(stage, Math.floor(Number(enduranceAtmosphere.fromStage) || 0)));
+  const progress = Math.max(0, Math.min(1, Number(enduranceAtmosphere.progress) || 0));
+  const toSky = skyWithWeather(ENDURANCE_SKIES[stage], weather);
+  const fromSky = skyWithWeather(ENDURANCE_SKIES[fromStage], weather);
+  if (stage === fromStage || progress >= 1) return this.drawSky(toSky, time);
+  this.ctx.save(); this.ctx.globalAlpha *= 1 - progress; this.drawSky(fromSky, time); this.ctx.restore();
+  this.ctx.save(); this.ctx.globalAlpha *= progress; this.drawSky(toSky, time); this.ctx.restore();
+}
+```
+
+Then implement:
+
+```js
+drawEnduranceSky(enduranceAtmosphere = {}, enduranceWeather = {}, time = 0) {
+  const current = enduranceWeather.current || 'clear';
+  const previous = enduranceWeather.previous || current;
+  const progress = Math.max(0, Math.min(1, Number(enduranceWeather.progress) || 0));
+  if (previous === current || progress >= 1) return this.drawTimeSky(enduranceAtmosphere, current, time);
+  this.ctx.save(); this.ctx.globalAlpha *= 1 - progress; this.drawTimeSky(enduranceAtmosphere, previous, time); this.ctx.restore();
+  this.ctx.save(); this.ctx.globalAlpha *= progress; this.drawTimeSky(enduranceAtmosphere, current, time); this.ctx.restore();
+}
+```
+
+In `draw()` call:
 
 ```js
 this.drawEnduranceSky(state.enduranceAtmosphere, state.enduranceWeather, time);
 ```
 
-- [ ] **Step 7: Verify GREEN**
+- [ ] **Step 6: Verify GREEN**
 
 ```bash
 node endurance-renderer.test.mjs
@@ -730,7 +806,7 @@ node endurance-runtime.test.mjs
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/endurance-renderer.mjs src/background-fabric.mjs src/background-fabric-runtime.mjs endurance-renderer.test.mjs background-fabric.test.mjs
@@ -751,25 +827,17 @@ git commit -m "feat: add pixel weather transitions to Endurance"
 **Interfaces:**
 - Consumes snapshot `weather` from Task 3.
 - Consumes callback `onEnduranceWeather({ from, to, callout })`.
-- Produces DOM `#enduranceWeatherBadge` hidden outside Endurance.
+- Produces DOM `#enduranceWeatherBadge`, hidden outside Endurance.
 
 - [ ] **Step 1: Add RED UI/style contracts**
-
-Assert in `endurance-ui.test.mjs`:
 
 ```js
 assert.match(indexSource, /id="enduranceWeatherBadge"/);
 assert.match(appSource, /onEnduranceWeather/);
 assert.match(appSource, /weatherBadgeLabel/);
 assert.match(appSource, /snapshot\.weather/);
-```
-
-Assert in `endurance-style.test.mjs`:
-
-```js
 assert.match(css, /\.endurance-weather-badge/);
 assert.match(css, /data-weather="frost"/);
-assert.match(css, /@media \(max-width:/);
 ```
 
 - [ ] **Step 2: Run RED**
@@ -781,19 +849,17 @@ node endurance-style.test.mjs
 
 Expected: FAIL.
 
-- [ ] **Step 3: Add the badge to the top HUD without adding a fifth stat**
+- [ ] **Step 3: Add the badge without adding a fifth primary stat**
 
-In `index.html`, place near `game-title-block` / `score-compact`:
+In `index.html`, near the title/score block:
 
 ```html
 <span class="endurance-weather-badge" id="enduranceWeatherBadge" data-weather="clear" hidden aria-live="polite">☀ CLEAR</span>
 ```
 
-Do not alter the existing `Wynik / Combo / Czas / Kolory` stat structure.
+- [ ] **Step 4: Wire badge state and callouts in `src/app.mjs`**
 
-- [ ] **Step 4: Wire app state and callouts**
-
-Import `weatherBadgeLabel` from `src/endurance-weather.mjs`, add the ref, and in `createEnduranceGame()`:
+Import `weatherBadgeLabel`, add the ref, and in `createEnduranceGame()`:
 
 ```js
 onEnduranceWeather: ({ from, to, callout }) => {
@@ -809,15 +875,50 @@ refs.enduranceWeatherBadge.dataset.weather = snapshot.weather || 'clear';
 refs.enduranceWeatherBadge.textContent = weatherBadgeLabel(snapshot.weather || 'clear');
 ```
 
-In campaign/showMap/startLevel paths set `hidden = true` and reset `data-weather='clear'` so campaign never displays dynamic Endurance weather.
+In `showMap()` and campaign `startLevel()`:
 
-Extend `flashCallout()` cleanup list with `is-weather`.
+```js
+refs.enduranceWeatherBadge.hidden = true;
+refs.enduranceWeatherBadge.dataset.weather = 'clear';
+refs.enduranceWeatherBadge.textContent = '☀ CLEAR';
+```
 
-- [ ] **Step 5: Style for desktop/mobile/reduced motion**
+Extend `flashCallout()` cleanup:
 
-Use compact pixel styling in `styles/endurance.css`, e.g. 10–11px text, hard border/shadow, no backdrop that obscures the board. Give Frost a pale-cyan border, Rain a muted-blue border, Snow a near-white border. At 390px width, the badge must not expand HUD width beyond the playfield.
+```js
+refs.comboCallout.classList.remove('is-visible', 'is-special-ready', 'is-endurance-stage', 'is-weather');
+```
 
-Reduced-motion may remove badge animation but must not change weather timing/physics.
+- [ ] **Step 5: Add compact desktop/mobile/reduced-motion CSS**
+
+Use:
+
+```css
+.endurance-weather-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 6px;
+  border: 1px solid rgba(239,248,250,.75);
+  background: rgba(12,31,42,.72);
+  box-shadow: 2px 2px 0 rgba(5,18,26,.34);
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.endurance-weather-badge[hidden] { display: none; }
+.endurance-weather-badge[data-weather="rain"] { border-color: #8fb7cf; }
+.endurance-weather-badge[data-weather="snow"] { border-color: #edf7f8; }
+.endurance-weather-badge[data-weather="frost"] { border-color: #a9eaff; box-shadow: 2px 2px 0 rgba(5,18,26,.34), 0 0 0 1px rgba(185,242,255,.18); }
+@media (max-width: 430px) {
+  .endurance-weather-badge { padding: 2px 4px; font-size: 9px; max-width: 72px; overflow: hidden; text-overflow: ellipsis; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .endurance-weather-badge { transition: none !important; }
+}
+```
 
 - [ ] **Step 6: Verify GREEN**
 
@@ -843,17 +944,16 @@ git commit -m "feat: show Endurance weather status"
 **Files:**
 - Modify: `tools/endurance-balance.mjs`
 - Modify: `endurance-balance.test.mjs`
-- Modify: `.github/workflows/ci.yml` only if a syntax/test command is missing (do not put the full study in every CI run)
 
 **Interfaces:**
-- Consumes: Task 2 weather scheduler and Task 1 collision-distance helper.
-- Produces: `frostCandidateConfigs()` for scales `.76`, `.82`, `.88`, `1.00`.
-- Produces: `runFrostMatrix(...)` separate from the existing baseline matrix so the previously verified v2 balance study remains reproducible.
+- Consumes Task 2 weather scheduler and Task 1 `projectileCollisionDistance()`.
+- Produces: `frostCandidateConfigs()` for `.76`, `.82`, `.88`, `1.00`.
+- Produces: `runFrostMatrix(...)`, separate from the existing baseline matrix.
 - Adds per-run metrics: `scorePerMinute`, `frostShare`, `frostShots`, `frostOnlyGapShots`.
 
 - [ ] **Step 1: Write RED Frost-study tests**
 
-Extend `endurance-balance.test.mjs`:
+Add imports and assertions:
 
 ```js
 const frostConfigs = frostCandidateConfigs();
@@ -863,7 +963,7 @@ const frostA = runFrostMatrix({ runs: 3, seed: 991, profiles: ['average'], maxSe
 const frostB = runFrostMatrix({ runs: 3, seed: 991, profiles: ['average'], maxSeconds: 180 });
 assert.deepEqual(frostA, frostB);
 for (const run of frostA.runs) {
-  assert.ok(run.frostShare >= 0 && run.frostShare <= .4 + .001);
+  assert.ok(run.frostShare >= 0 && run.frostShare <= .401);
   assert.ok(run.scorePerMinute >= 0);
   assert.ok(run.frostShots >= 0);
   assert.ok(run.frostOnlyGapShots >= 0 && run.frostOnlyGapShots <= run.frostShots);
@@ -876,11 +976,9 @@ for (const run of frostA.runs) {
 node endurance-balance.test.mjs
 ```
 
-Expected: FAIL on missing Frost matrix APIs/metrics.
+Expected: FAIL on missing Frost APIs/metrics.
 
-- [ ] **Step 3: Keep the old matrix untouched and add a dedicated Frost matrix**
-
-Do not change `candidateConfigs()` or old baseline IDs. Add:
+- [ ] **Step 3: Add Frost configs without changing the old matrix**
 
 ```js
 export function frostCandidateConfigs() {
@@ -891,41 +989,85 @@ export function frostCandidateConfigs() {
 }
 ```
 
-`runFrostMatrix()` should call a weather-aware simulation path with all existing Endurance v2 gameplay config values fixed.
+Leave `candidateConfigs()` and old baseline IDs unchanged.
 
-- [ ] **Step 4: Model relative Frost access using the same collision threshold**
+- [ ] **Step 4: Add a deterministic direct-corridor helper for relative Frost access**
 
-For balance only, add a conservative direct-shot corridor evaluator from launcher center to candidate cell. Sample points along the segment and use `projectileCollisionDistance(geometry.RAD, scale)` against occupied orb centers, excluding the target neighborhood. The same evaluator at `1.00` and Frost scale provides the metric:
-
-```js
-const frostOnly = clearsAtScale(frostScale) && !clearsAtScale(1);
-```
-
-Use the active weather scheduler to decide shot scale. When weather is Frost, prefer otherwise equivalent candidates that are reachable at the Frost scale; do not give the simulator bank-shot superpowers that the metric cannot model.
-
-- [ ] **Step 5: Aggregate required metrics**
-
-Add summary fields:
+Import `projectileCollisionDistance` and add:
 
 ```js
-medianSurvivalMs
-medianScorePerMinute
-missRate
-medianRowsAdded
-medianBestCombo
-meanFrostShare
-meanFrostOnlyGapRate
+function directCorridorClear({ grid, geometry, targetC, targetR, collisionScale = 1 }) {
+  const startX = geometry.LW / 2;
+  const startY = geometry.LAUNCH_Y;
+  const targetX = geometry.colX(targetC, targetR);
+  const targetY = geometry.rowY(targetR);
+  const dx = targetX - startX;
+  const dy = targetY - startY;
+  const distance = Math.hypot(dx, dy);
+  const steps = Math.max(2, Math.ceil(distance / 3));
+  const threshold = projectileCollisionDistance(geometry.RAD, collisionScale);
+  const targetKey = geometry.key(targetC, targetR);
+
+  for (let i = 1; i < steps - 1; i += 1) {
+    const t = i / steps;
+    const x = startX + dx * t;
+    const y = startY + dy * t;
+    for (const key of grid.keys()) {
+      if (key === targetKey) continue;
+      const [c, r] = geometry.split(key);
+      if (geometry.dist(x, y, geometry.colX(c, r), geometry.rowY(r)) <= threshold) return false;
+    }
+  }
+  return true;
+}
 ```
 
-The full study command should be:
+When selecting candidates in the Frost study, filter to direct corridors clear at the active scale. If none exist, fall back to existing candidate selection so the simulator remains total. Record:
+
+```js
+const clearsFrost = directCorridorClear({ ...args, collisionScale });
+const clearsNormal = directCorridorClear({ ...args, collisionScale: 1 });
+const frostOnly = weather === 'frost' && clearsFrost && !clearsNormal;
+```
+
+- [ ] **Step 5: Advance the same weather scheduler used by production**
+
+Create a dedicated weather RNG with a deterministic salt and initialize `createEnduranceWeatherState()`. Before each simulated shot, advance weather to the new `elapsedMs`, then derive active collision scale from `weatherShotMetadata()` with the candidate override:
+
+```js
+const weatherMeta = weatherShotMetadata(weatherState.current, { ...ENDURANCE_WEATHER_CONFIG, frostCollisionScale: frostConfig.frostCollisionScale });
+```
+
+Accumulate Frost time from phase overlaps rather than counting shots. For each elapsed interval `[beforeMs, elapsedMs]`, add only the portion during which `weatherState.current === 'frost'` before/after crossed transitions; use the scheduler's `changes[].atMs` boundaries so the result is deterministic.
+
+- [ ] **Step 6: Add per-run and summary metrics**
+
+Per run:
+
+```js
+scorePerMinute: survivalMs > 0 ? Number((score / (survivalMs / 60000)).toFixed(2)) : 0,
+frostShare: survivalMs > 0 ? Number((frostActiveMs / survivalMs).toFixed(4)) : 0,
+frostShots,
+frostOnlyGapShots,
+```
+
+Summary:
+
+```js
+medianScorePerMinute: Number(quantile(items.map((item) => item.scorePerMinute), .5).toFixed(2)),
+meanFrostShare: Number(mean(items.map((item) => item.frostShare)).toFixed(4)),
+meanFrostOnlyGapRate: Number(mean(items.map((item) => item.frostShots ? item.frostOnlyGapShots / item.frostShots : 0)).toFixed(4)),
+```
+
+Add CLI handling so:
 
 ```bash
 node tools/endurance-balance.mjs --frost-study --runs 250 --seed 1337 --output artifacts/endurance-weather-balance
 ```
 
-and should emit JSON + Markdown without replacing the previous Endurance v2 baseline artifacts.
+writes `artifacts/endurance-weather-balance.json` and `.md`, leaving old baseline output behavior unchanged when `--frost-study` is absent.
 
-- [ ] **Step 6: Verify GREEN**
+- [ ] **Step 7: Verify GREEN**
 
 ```bash
 node endurance-balance.test.mjs
@@ -934,7 +1076,7 @@ node --check tools/endurance-balance.mjs
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add tools/endurance-balance.mjs endurance-balance.test.mjs
@@ -943,19 +1085,19 @@ git commit -m "test: add Frost balance study"
 
 ---
 
-### Task 8: Expand Endurance browser smoke for shallow aim and all four weather states
+### Task 8: Expand Endurance browser smoke for shallow aim and all weather states
 
 **Files:**
 - Modify: `.github/scripts/endurance-smoke.mjs`
 
 **Interfaces:**
-- Uses the existing `window.__enduranceGame` probe.
-- Does not add test-only production APIs.
-- Produces screenshots for clear, rain, snow, frost and shallow-angle aim.
+- Uses existing `window.__enduranceGame` probe.
+- Adds no production-only test hooks.
+- Produces screenshots for clear, rain, snow, frost and shallow-angle aiming.
 
-- [ ] **Step 1: Add RED smoke assertions locally/in CI branch**
+- [ ] **Step 1: Extend browser snapshot data**
 
-Extend `runtimeSnapshot()` with:
+Add:
 
 ```js
 weather: snapshot.weather,
@@ -964,40 +1106,48 @@ aimAngle: game.aimAngle,
 projectile: game.projectile ? {
   weatherType: game.projectile.weatherType,
   collisionScale: game.projectile.collisionScale,
+  color: game.projectile.color,
 } : null,
 ```
 
-Add desktop checks for `#enduranceWeatherBadge` and pointer aiming.
+- [ ] **Step 2: Verify pointer aim reaches both clamp limits**
 
-- [ ] **Step 2: Exercise real pointer coordinates near both clamp limits**
-
-Use the canvas bounding box and logical mapping. Move pointer to a point corresponding to logical `y = LAUNCH_Y - 4` and far left/right x values, then assert:
+After `openEndurance()`, get the canvas box and map logical points to CSS coordinates:
 
 ```js
-Math.abs(rightAngle - (-.18)) < .03
-Math.abs(leftAngle - (-Math.PI + .18)) < .03
+const box = await page.locator('#gameCanvas').boundingBox();
+const toClient = (x, y) => ({ x: box.x + x / 240 * box.width, y: box.y + y / 320 * box.height });
+const right = toClient(239, 284);
+await page.mouse.move(right.x, right.y);
+let aim = (await runtimeSnapshot(page)).aimAngle;
+assert(Math.abs(aim - (-.18)) < .03, `right shallow aim ${aim}`);
+const left = toClient(1, 284);
+await page.mouse.move(left.x, left.y);
+aim = (await runtimeSnapshot(page)).aimAngle;
+assert(Math.abs(aim - (-Math.PI + .18)) < .03, `left shallow aim ${aim}`);
 ```
 
 Save `artifacts/endurance-weather-shallow-aim.png`.
 
-- [ ] **Step 3: Use the existing browser probe to force visual weather states without production seams**
+- [ ] **Step 3: Force visual weather states through the probed instance only**
 
-For each `rain`, `snow`, `frost`, mutate only the probed instance's public-ish test state inside `page.evaluate()`:
+For each target in `['clear','rain','snow','frost']`:
 
 ```js
-game.weatherState = {
-  ...game.weatherState,
-  previous: game.weatherState.current,
-  current: target,
-  transitionStartedMs: game.elapsedMs,
-  transitionDurationMs: 2200,
-};
-game.emitState();
+await page.evaluate((target) => {
+  const game = window.__enduranceGame;
+  game.weatherState = {
+    ...game.weatherState,
+    previous: game.weatherState.current,
+    current: target,
+    transitionStartedMs: game.elapsedMs,
+    transitionDurationMs: 2200,
+  };
+  game.emitState();
+}, target);
 ```
 
-Unit tests already verify scheduler correctness; smoke verifies browser rendering/HUD.
-
-For each state assert badge text/data, take screenshots:
+Assert `#enduranceWeatherBadge` is visible, has matching `data-weather`, and expected text. After setting `game.elapsedMs += 1100` and `emitState()`, assert transition progress is between 0 and 1. Save:
 
 ```txt
 artifacts/endurance-weather-clear.png
@@ -1006,19 +1156,62 @@ artifacts/endurance-weather-snow.png
 artifacts/endurance-weather-frost.png
 ```
 
-- [ ] **Step 4: Verify Frost callout and shot snapshot**
+- [ ] **Step 4: Verify real Frost transition callout and frozen projectile metadata**
 
-Under forced Frost, reset queue to a known colored normal shot, trigger the runtime weather callback path or call the same UI callback by transitioning through `game.update()` at a phase boundary, then shoot. Assert projectile color remains known, `weatherType === 'frost'`, `collisionScale === .82`, and the callout contains `MRÓZ`.
+Drive a real transition by placing the current phase one millisecond from expiry and ensuring the deterministic next candidate can become Frost. If the current seeded next state is not Frost, cross phases until Frost appears, with a hard cap of 8 transitions:
 
-Also force weather to clear while the projectile is active and assert its scale remains `.82`.
+```js
+await page.evaluate(() => {
+  const game = window.__enduranceGame;
+  for (let i = 0; i < 8 && game.weatherState.current !== 'frost'; i += 1) {
+    game.elapsedMs = game.weatherState.phaseEndsMs - 1;
+    game.update(.001);
+  }
+  if (game.weatherState.current !== 'frost') throw new Error('seed did not reach Frost within 8 phases');
+  game.queue = [{ type: 'normal', color: 2 }, ...game.queue.slice(1)];
+  game.projectile = null;
+  game.shoot();
+});
+await page.waitForFunction(() => document.querySelector('.combo-callout')?.textContent?.includes('MRÓZ'));
+let frostShot = await runtimeSnapshot(page);
+assert(frostShot.projectile.color === 2);
+assert(frostShot.projectile.weatherType === 'frost');
+assert(Math.abs(frostShot.projectile.collisionScale - .82) < 1e-9);
+await page.evaluate(() => { window.__enduranceGame.weatherState.current = 'clear'; window.__enduranceGame.emitState(); });
+frostShot = await runtimeSnapshot(page);
+assert(Math.abs(frostShot.projectile.collisionScale - .82) < 1e-9, 'mid-flight thaw changed projectile scale');
+```
 
-- [ ] **Step 5: Verify Guide preview uses Frost scale**
+- [ ] **Step 5: Verify Guide and real collision agree in a crafted narrow-gap case**
 
-Put a Guide in queue during Frost and compare a crafted narrow-gap trajectory against a normal-scale preview using the game collision helper. The browser assertion should confirm the Guide trajectory can extend through the same gap that would stop at scale 1.00.
+Inside `page.evaluate()`, replace grid temporarily with two occupied orbs positioned so a test point is between normal and Frost thresholds, then compare `game.collides(x, y, 1)` and `game.collides(x, y, .82)`. Restore the grid afterward:
 
-- [ ] **Step 6: Preserve existing progression/loss/mobile checks**
+```js
+const gap = await page.evaluate(() => {
+  const game = window.__enduranceGame;
+  const original = game.grid;
+  const B = game.B;
+  game.grid = new Map([[B.key(0, 4), 1], [B.key(2, 4), 2]]);
+  const x = (B.colX(0, 4) + B.colX(2, 4)) / 2;
+  const y = B.rowY(4);
+  const result = { normal: game.collides(x, y, 1), frost: game.collides(x, y, .82) };
+  game.grid = original;
+  return result;
+});
+assert(gap.normal === true && gap.frost === false, `crafted Frost gap mismatch ${JSON.stringify(gap)}`);
+```
 
-Keep the current fixed 11/10, miss-row, drop-only success, 60/120 color stage, special, result/retry and 390×844 overflow checks. Add mobile assertion that the weather badge is visible and does not cause horizontal overflow.
+The Node runtime test from Task 3 already verifies Guide selects `.82`; this browser check verifies the browser uses the same scale-aware collision helper.
+
+- [ ] **Step 6: Preserve existing Endurance smoke checks and mobile layout**
+
+Keep all current fixed 11/10, miss-row, drop-only success, 60/120 color stages, specials, loss/retry and 390×844 overflow checks. Add:
+
+```js
+assert(await page.locator('#enduranceWeatherBadge').isVisible(), 'mobile weather badge should be visible');
+```
+
+and keep horizontal overflow `<= 1px`.
 
 - [ ] **Step 7: Run browser smoke**
 
@@ -1041,16 +1234,17 @@ git commit -m "test: cover Endurance weather and shallow aiming"
 ### Task 9: Full study, screenshot review, exact-head CI and PR evidence
 
 **Files:**
-- Modify only if needed after evidence: PR #2 body/comment; no gameplay changes unless a failing test or measured balance issue requires them.
-- Generated local/CI artifacts: `artifacts/endurance-weather-balance.{json,md}` and browser PNGs.
+- No gameplay file is changed unless verification exposes a real defect or the Frost study requires changing only `ENDURANCE_WEATHER_CONFIG.frostCollisionScale`.
+- Update PR #2 body/comment with final evidence.
+- Generate `artifacts/endurance-weather-balance.json`, `.md`, and browser PNGs.
 
 **Interfaces:**
 - Consumes all previous tasks.
-- Produces a verified exact-head SHA and evidence for PR #2.
+- Produces final exact-head SHA, CI run ID, balance verdict, screenshot artifact evidence and pinned preview link.
 
-- [ ] **Step 1: Run the full Node suite exactly as CI does**
+- [ ] **Step 1: Run the full Node suite from `.github/workflows/ci.yml`**
 
-Run every command in `.github/workflows/ci.yml`, including the new weather test and all syntax checks. Minimum new commands:
+Run all CI commands; the new/critical subset is:
 
 ```bash
 node endurance-weather.test.mjs
@@ -1071,9 +1265,7 @@ Expected: all PASS.
 node tools/endurance-balance.mjs --frost-study --runs 250 --seed 1337 --output artifacts/endurance-weather-balance
 ```
 
-Inspect all four scales `.76/.82/.88/1.00`. Keep `.82` unless the report shows it materially violates the spec: Frost share >40%, survival increase that trivializes pressure, or negligible Frost-only gap benefit.
-
-If `.82` needs tuning, change only `ENDURANCE_WEATHER_CONFIG.frostCollisionScale`, update tests, rerun the study, and document why. Do not tune unrelated Endurance parameters.
+Inspect `.76`, `.82`, `.88`, `1.00`. Keep `.82` unless it materially violates the spec: Frost share >40%, pressure becomes trivial, or Frost-only gap benefit is negligible. If scale changes, update only the weather config + matching tests, rerun this study and record the data-backed reason.
 
 - [ ] **Step 3: Run all browser smoke**
 
@@ -1083,11 +1275,11 @@ node .github/scripts/queue-smoke.mjs
 node .github/scripts/endurance-smoke.mjs
 ```
 
-Expected: campaign, queue and Endurance all PASS.
+Expected: all PASS.
 
-- [ ] **Step 4: Manually inspect screenshots**
+- [ ] **Step 4: Manually inspect weather/aiming screenshots**
 
-Check at minimum:
+Inspect:
 
 ```txt
 artifacts/endurance-weather-shallow-aim.png
@@ -1098,33 +1290,33 @@ artifacts/endurance-weather-frost.png
 artifacts/mobile-endurance-v2.png
 ```
 
-Reject the build if Frost hides the shot color/special identity, snow/rain obscure gameplay, or the badge crowds the mobile HUD.
+Reject the build if Frost hides color/special identity, weather obscures aiming, or the badge crowds mobile HUD.
 
-- [ ] **Step 5: Push exact head and verify GitHub Actions**
+- [ ] **Step 5: Verify exact-head GitHub Actions**
 
-Wait for both `test` and `browser-smoke` jobs on the exact final SHA. Record run ID and screenshot artifact ID/digest.
+Wait for both `test` and `browser-smoke` jobs on the exact final SHA and record run ID + screenshot artifact ID/digest.
 
 - [ ] **Step 6: Update PR #2 evidence without merging**
 
-Update the PR body/comment with:
+Add:
 
 ```md
 ### Endurance dynamic weather
-- aiming now reaches the existing ~10.3° clamp on pointer/touch and keyboard
+- pointer/touch/keyboard aiming reaches the existing ~10.3° clamp
 - seeded Endurance-only Clear/Rain/Snow/Frost phases
-- Frost shots snapshot a reduced in-flight collision scale; placed-orb/snap geometry unchanged
-- Guide prediction uses the same collision scale as the actual shot
+- Frost snapshots reduced in-flight collision scale; board/snap geometry remains standard
+- Guide prediction uses the same collision scale as the real shot
 - Fabric pixel-art weather crossfades + compact HUD badge
-- Frost balance study: .76/.82/.88/1.00 with 250 runs/profile/config
+- Frost balance study: .76/.82/.88/1.00, 250 runs/profile/config
 - exact-head CI: <SHA / run ID / artifact evidence>
 ```
 
-Keep PR #2 `draft: true`, `merged: false`.
+Keep PR #2 draft/open/unmerged.
 
 - [ ] **Step 7: Verify branch safety**
 
-Confirm `main` remains `220266acdbf313e9d0b656dfd83f945bf56cf29c` unless the user explicitly changed it elsewhere, and confirm `playable` was not advanced by this work.
+Confirm `main` is still `220266acdbf313e9d0b656dfd83f945bf56cf29c` unless changed independently by the user, and verify this work did not advance `playable`.
 
 - [ ] **Step 8: Final handoff**
 
-Give the user a rawcdn/githack link pinned to the exact verified SHA plus the Frost balance report and screenshot archive. Do not claim completion until exact-head test + browser-smoke are both green.
+Provide a rawcdn/githack link pinned to the exact verified SHA plus the Frost balance report and screenshot archive. Do not claim completion until exact-head `test` and `browser-smoke` are both green.
