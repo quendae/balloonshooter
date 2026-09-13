@@ -42,6 +42,8 @@ jobs:
         run: node endurance-ui.test.mjs
       - name: Endurance visual contract
         run: node endurance-style.test.mjs
+      - name: Endurance special readability tests
+        run: node endurance-specials.test.mjs
       - name: Wind corridor tests
         run: node wind.test.mjs
       - name: Pixel art contract tests
