@@ -24,7 +24,16 @@ for (const selector of [
 }
 
 assert.ok(!css.includes('data-spatial-stage'), 'Endurance v2 must not keep visual hooks for removed spatial stages');
-assert.ok(css.includes('visibility: hidden'), 'Endurance objective slot should stay layout-stable but visually empty');
+assert.match(
+  css,
+  /\.game-screen\[data-mode="endurance"\] \.playfield-objective\s*\{[^}]*display:\s*none/s,
+  'Endurance objective must leave the HUD grid instead of reserving an invisible column',
+);
+assert.match(
+  css,
+  /@media \(max-width: 720px\)[\s\S]*?\.game-screen\[data-mode="endurance"\] \.playfield-hud-top\s*\{[^}]*grid-template-columns:\s*32px minmax\(0, 1fr\) auto 32px/s,
+  'mobile Endurance HUD should stay on one row: back | title | weather | pause',
+);
 assert.ok(css.includes('display: none'), 'Endurance third compact stat and hidden weather badge must leave layout when hidden');
 assert.ok(css.includes('pointer-events: none'), 'special/stage/weather status must never block aiming or firing');
 assert.ok(css.includes('prefers-reduced-motion'), 'Endurance UI motion must respect reduced-motion preferences');
