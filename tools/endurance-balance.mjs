@@ -10,6 +10,13 @@ import {
   scheduledSpecialType,
 } from '../src/endurance-core.mjs';
 import { createEnduranceGeometry, failureLineReached, shiftGridForNewRow } from '../src/endurance-geometry.mjs';
+import {
+  ENDURANCE_WEATHER_CONFIG,
+  advanceEnduranceWeather,
+  createEnduranceWeatherState,
+  weatherShotMetadata,
+} from '../src/endurance-weather.mjs';
+import { projectileCollisionDistance } from '../src/game-physics.mjs';
 import { resolveShotOnGrid } from '../src/shot-resolution.mjs';
 import { createSeededRng, scoreTurn } from '../src/sky-rescue-core.mjs';
 
@@ -51,6 +58,13 @@ export function candidateConfigs() {
   return candidates.map((item) => ({ ...item, configKey: configId(item) }));
 }
 
+export function frostCandidateConfigs() {
+  return [.76, .82, .88, 1].map((frostCollisionScale) => ({
+    id: `frost-${frostCollisionScale.toFixed(2)}`,
+    frostCollisionScale,
+  }));
+}
+
 function hashSeed(seed, salt) {
   let value = Number(seed) >>> 0;
   const text = String(salt);
@@ -82,12 +96,9 @@ function evaluateCandidate({ grid, geometry, shot, c, r, palette, rng, profile }
   return { c, r, removed, value, popped: result.popped.length, dropped: result.dropped.length };
 }
 
-function chooseCandidate({ grid, geometry, shot, palette, rng, profile }) {
-  const cells = legalCells(grid, geometry);
-  if (!cells.length) return null;
-  const evaluated = cells.map(([c, r]) => evaluateCandidate({ grid, geometry, shot, c, r, palette, rng, profile }));
+function chooseEvaluatedCandidate(evaluated, shot, rng, profile) {
+  if (!evaluated.length) return null;
   evaluated.sort((a, b) => b.value - a.value || b.removed - a.removed || a.r - b.r || a.c - b.c);
-
   const special = shot.type !== 'normal';
   const bestChance = special
     ? Math.max(profile.bestMoveChance, profile.specialAwareness)
@@ -97,6 +108,52 @@ function chooseCandidate({ grid, geometry, shot, palette, rng, profile }) {
   const poolStart = Math.min(evaluated.length - 1, Math.max(0, Math.floor(evaluated.length * .28)));
   const pool = evaluated.slice(poolStart);
   return pool[Math.min(pool.length - 1, Math.floor(rng() * pool.length))] || evaluated.at(-1);
+}
+
+function chooseCandidate({ grid, geometry, shot, palette, rng, profile }) {
+  const cells = legalCells(grid, geometry);
+  if (!cells.length) return null;
+  const evaluated = cells.map(([c, r]) => evaluateCandidate({ grid, geometry, shot, c, r, palette, rng, profile }));
+  return chooseEvaluatedCandidate(evaluated, shot, rng, profile);
+}
+
+function directCorridorClear({ grid, geometry, targetC, targetR, collisionScale = 1 }) {
+  const startX = geometry.LW / 2;
+  const startY = geometry.LAUNCH_Y;
+  const targetX = geometry.colX(targetC, targetR);
+  const targetY = geometry.rowY(targetR);
+  const dx = targetX - startX;
+  const dy = targetY - startY;
+  const distance = Math.hypot(dx, dy);
+  const threshold = projectileCollisionDistance(geometry.RAD, collisionScale);
+  const travelLimit = Math.max(0, distance - threshold * 1.05);
+  if (travelLimit <= 3) return true;
+
+  for (let travel = 3; travel <= travelLimit; travel += 3) {
+    const t = travel / distance;
+    const x = startX + dx * t;
+    const y = startY + dy * t;
+    for (const key of grid.keys()) {
+      const [c, r] = geometry.split(key);
+      if (geometry.dist(x, y, geometry.colX(c, r), geometry.rowY(r)) <= threshold) return false;
+    }
+  }
+  return true;
+}
+
+function chooseFrostCandidate({ grid, geometry, shot, palette, rng, profile, collisionScale }) {
+  const cells = legalCells(grid, geometry);
+  if (!cells.length) return null;
+  const clearCells = cells.filter(([c, r]) => directCorridorClear({
+    grid,
+    geometry,
+    targetC: c,
+    targetR: r,
+    collisionScale,
+  }));
+  const source = clearCells.length ? clearCells : cells;
+  const evaluated = source.map(([c, r]) => evaluateCandidate({ grid, geometry, shot, c, r, palette, rng, profile }));
+  return chooseEvaluatedCandidate(evaluated, shot, rng, profile);
 }
 
 function insertPressureRow(state, palette, rng) {
@@ -132,6 +189,40 @@ function makeSpecialStats() {
   };
 }
 
+function applyResolvedShot({ state, result, shot, palette, rng, cfg, scoring }) {
+  const removed = result.popped.length + result.dropped.length;
+  if (shot.type !== 'normal') {
+    scoring.specials[shot.type].used += 1;
+    scoring.specials[shot.type].removed += removed;
+    if (removed > 0) scoring.specials[shot.type].successful += 1;
+  }
+
+  if (removed > 0) {
+    scoring.combo += 1;
+    scoring.bestCombo = Math.max(scoring.bestCombo, scoring.combo);
+    const breakdown = scoreTurn({
+      popped: result.popped.length,
+      dropped: result.dropped.length,
+      combo: 1,
+      cascadeCount: result.dropped.length >= 3 ? 1 : 0,
+    });
+    scoring.score += Math.round(breakdown.total * enduranceComboMultiplier(scoring.combo, cfg));
+    if (state.grid.size === 0 && scoring.clearBonusArmed) {
+      scoring.score += Math.max(0, Number(cfg.clearBonus) || 0);
+      scoring.clearBonusArmed = false;
+    } else if (state.grid.size > 0) {
+      scoring.clearBonusArmed = true;
+    }
+    return true;
+  }
+
+  scoring.combo = 0;
+  state.misses += 1;
+  if (!insertPressureRow(state, palette, rng)) return false;
+  scoring.clearBonusArmed = true;
+  return true;
+}
+
 export function simulateRun({ seed = 1, profile = 'average', config = ENDURANCE_CONFIG, maxSeconds = 600 } = {}) {
   const player = PROFILE[profile];
   if (!player) throw new Error(`Unknown Endurance balance profile: ${profile}`);
@@ -150,16 +241,18 @@ export function simulateRun({ seed = 1, profile = 'average', config = ENDURANCE_
 
   let elapsedMs = 0;
   let resolvedShots = 0;
-  let score = 0;
-  let combo = 0;
-  let bestCombo = 0;
   let maxLowestRow = geometry.lowestRow(grid);
   let previousWasSpecial = false;
-  let clearBonusArmed = grid.size > 0;
   let at60s = null;
   let at120s = null;
   let lossReason = 'time-cap';
-  const specials = makeSpecialStats();
+  const scoring = {
+    score: 0,
+    combo: 0,
+    bestCombo: 0,
+    clearBonusArmed: grid.size > 0,
+    specials: makeSpecialStats(),
+  };
   const maxMs = Math.max(1_000, Number(maxSeconds) * 1000 || 600_000);
 
   while (elapsedMs < maxMs) {
@@ -191,39 +284,11 @@ export function simulateRun({ seed = 1, profile = 'average', config = ENDURANCE_
       ceilRow: 0,
     });
     resolvedShots += 1;
-    const removed = result.popped.length + result.dropped.length;
 
-    if (shot.type !== 'normal') {
-      specials[shot.type].used += 1;
-      specials[shot.type].removed += removed;
-      if (removed > 0) specials[shot.type].successful += 1;
-    }
-
-    if (removed > 0) {
-      combo += 1;
-      bestCombo = Math.max(bestCombo, combo);
-      const breakdown = scoreTurn({
-        popped: result.popped.length,
-        dropped: result.dropped.length,
-        combo: 1,
-        cascadeCount: result.dropped.length >= 3 ? 1 : 0,
-      });
-      score += Math.round(breakdown.total * enduranceComboMultiplier(combo, cfg));
-      if (state.grid.size === 0 && clearBonusArmed) {
-        score += Math.max(0, Number(cfg.clearBonus) || 0);
-        clearBonusArmed = false;
-      } else if (state.grid.size > 0) {
-        clearBonusArmed = true;
-      }
-    } else {
-      combo = 0;
-      state.misses += 1;
-      if (!insertPressureRow(state, palette, rng)) {
-        lossReason = 'pressure-line';
-        maxLowestRow = Math.max(maxLowestRow, state.geometry.lowestRow(state.grid));
-        break;
-      }
-      clearBonusArmed = true;
+    if (!applyResolvedShot({ state, result, shot, palette, rng, cfg, scoring })) {
+      lossReason = 'pressure-line';
+      maxLowestRow = Math.max(maxLowestRow, state.geometry.lowestRow(state.grid));
+      break;
     }
 
     maxLowestRow = Math.max(maxLowestRow, state.geometry.lowestRow(state.grid));
@@ -242,8 +307,8 @@ export function simulateRun({ seed = 1, profile = 'average', config = ENDURANCE_
     configId: cfg.id || configId(cfg),
     seed: Number(seed),
     survivalMs,
-    score,
-    bestCombo,
+    score: scoring.score,
+    bestCombo: scoring.bestCombo,
     resolvedShots,
     misses: state.misses,
     rowsAdded: state.rowsAdded,
@@ -251,7 +316,175 @@ export function simulateRun({ seed = 1, profile = 'average', config = ENDURANCE_
     maxLowestRow,
     at60s,
     at120s,
-    specials,
+    specials: scoring.specials,
+    lossReason,
+  };
+}
+
+function frostOverlapMs(stateBefore, advanced, beforeMs, afterMs) {
+  let cursor = beforeMs;
+  let weather = stateBefore.current;
+  let frostMs = 0;
+  for (const change of advanced.changes) {
+    const boundary = Math.max(cursor, Math.min(afterMs, change.atMs));
+    if (weather === 'frost') frostMs += Math.max(0, boundary - cursor);
+    cursor = boundary;
+    weather = change.to;
+  }
+  if (weather === 'frost') frostMs += Math.max(0, afterMs - cursor);
+  return frostMs;
+}
+
+function simulateFrostRun({
+  seed = 1,
+  profile = 'average',
+  config = ENDURANCE_CONFIG,
+  frostConfig = frostCandidateConfigs()[1],
+  maxSeconds = 600,
+} = {}) {
+  const player = PROFILE[profile];
+  if (!player) throw new Error(`Unknown Endurance balance profile: ${profile}`);
+  const cfg = cloneConfig(config);
+  const weatherConfig = {
+    ...ENDURANCE_WEATHER_CONFIG,
+    frostCollisionScale: Number(frostConfig.frostCollisionScale) || ENDURANCE_WEATHER_CONFIG.frostCollisionScale,
+  };
+  const rng = createSeededRng(hashSeed(seed, `${profile}:${configId(cfg)}:frost-play`));
+  const weatherRng = createSeededRng(hashSeed(seed, `${profile}:frost-weather`));
+  let weatherState = createEnduranceWeatherState({ nowMs: 0, rng: weatherRng, config: weatherConfig });
+  let geometry = createEnduranceGeometry({ rowPhase: 0 });
+  const initialPalette = paletteForElapsed(0, cfg);
+  let grid = generateInitialEnduranceGrid({ geometry, palette: initialPalette, rng, rows: cfg.initialRows });
+  const state = {
+    geometry,
+    grid,
+    rowPhase: 0,
+    rowsAdded: 0,
+    misses: 0,
+  };
+
+  let elapsedMs = 0;
+  let resolvedShots = 0;
+  let maxLowestRow = geometry.lowestRow(grid);
+  let previousWasSpecial = false;
+  let at60s = null;
+  let at120s = null;
+  let lossReason = 'time-cap';
+  let frostActiveMs = 0;
+  let frostShots = 0;
+  let frostOnlyGapShots = 0;
+  const scoring = {
+    score: 0,
+    combo: 0,
+    bestCombo: 0,
+    clearBonusArmed: grid.size > 0,
+    specials: makeSpecialStats(),
+  };
+  const maxMs = Math.max(1_000, Number(maxSeconds) * 1000 || 600_000);
+
+  while (elapsedMs < maxMs) {
+    const jitter = (rng() * 2 - 1) * player.jitterSeconds;
+    const seconds = Math.max(1, player.shotSeconds + jitter);
+    const beforeMs = elapsedMs;
+    elapsedMs += seconds * 1000;
+    const weatherNowMs = Math.min(elapsedMs, maxMs);
+    const weatherBefore = weatherState;
+    const advanced = advanceEnduranceWeather(weatherState, weatherNowMs, weatherRng, weatherConfig);
+    frostActiveMs += frostOverlapMs(weatherBefore, advanced, beforeMs, weatherNowMs);
+    weatherState = advanced.state;
+    const weather = weatherState.current;
+    const weatherMeta = weatherShotMetadata(weather, weatherConfig);
+    const collisionScale = weatherMeta.collisionScale;
+    if (weather === 'frost') frostShots += 1;
+
+    const palette = paletteForElapsed(elapsedMs, cfg);
+    const specialType = scheduledSpecialType({ resolvedShots, previousWasSpecial }, cfg);
+    const color = palette[Math.min(palette.length - 1, Math.floor(rng() * palette.length))] || 1;
+    const shot = specialType
+      ? { type: specialType, color: specialType === 'rainbow' ? 0 : color }
+      : { type: 'normal', color };
+    previousWasSpecial = shot.type !== 'normal';
+
+    const chosen = chooseFrostCandidate({
+      grid: state.grid,
+      geometry: state.geometry,
+      shot,
+      palette,
+      rng,
+      profile: player,
+      collisionScale,
+    });
+    if (!chosen) {
+      lossReason = 'no-legal-snap';
+      break;
+    }
+
+    if (weather === 'frost') {
+      const clearsFrost = directCorridorClear({
+        grid: state.grid,
+        geometry: state.geometry,
+        targetC: chosen.c,
+        targetR: chosen.r,
+        collisionScale,
+      });
+      const clearsNormal = directCorridorClear({
+        grid: state.grid,
+        geometry: state.geometry,
+        targetC: chosen.c,
+        targetR: chosen.r,
+        collisionScale: 1,
+      });
+      if (clearsFrost && !clearsNormal) frostOnlyGapShots += 1;
+    }
+
+    const result = resolveShotOnGrid({
+      grid: state.grid,
+      shot,
+      c: chosen.c,
+      r: chosen.r,
+      geometry: state.geometry,
+      pickColor: () => palette[Math.min(palette.length - 1, Math.floor(rng() * palette.length))] || 1,
+      ceilRow: 0,
+    });
+    resolvedShots += 1;
+
+    if (!applyResolvedShot({ state, result, shot, palette, rng, cfg, scoring })) {
+      lossReason = 'pressure-line';
+      maxLowestRow = Math.max(maxLowestRow, state.geometry.lowestRow(state.grid));
+      break;
+    }
+
+    maxLowestRow = Math.max(maxLowestRow, state.geometry.lowestRow(state.grid));
+    if (failureLineReached(state.grid, state.geometry)) {
+      lossReason = 'pressure-line';
+      break;
+    }
+
+    if (!at60s && beforeMs < 60_000 && elapsedMs >= 60_000) at60s = snapshotMilestone(state, elapsedMs);
+    if (!at120s && beforeMs < 120_000 && elapsedMs >= 120_000) at120s = snapshotMilestone(state, elapsedMs);
+  }
+
+  const survivalMs = Math.round(Math.min(elapsedMs, maxMs));
+  return {
+    profile,
+    configId: frostConfig.id,
+    frostCollisionScale: weatherConfig.frostCollisionScale,
+    seed: Number(seed),
+    survivalMs,
+    score: scoring.score,
+    scorePerMinute: survivalMs > 0 ? Number((scoring.score / (survivalMs / 60_000)).toFixed(2)) : 0,
+    frostShare: survivalMs > 0 ? Number((Math.min(frostActiveMs, survivalMs) / survivalMs).toFixed(4)) : 0,
+    frostShots,
+    frostOnlyGapShots,
+    bestCombo: scoring.bestCombo,
+    resolvedShots,
+    misses: state.misses,
+    rowsAdded: state.rowsAdded,
+    missRate: resolvedShots ? Number((state.misses / resolvedShots).toFixed(4)) : 0,
+    maxLowestRow,
+    at60s,
+    at120s,
+    specials: scoring.specials,
     lossReason,
   };
 }
@@ -292,6 +525,35 @@ export function runMatrix({ runs = 8, seed = 1337, configs = candidateConfigs(),
   };
 }
 
+export function runFrostMatrix({
+  runs = 8,
+  seed = 1337,
+  configs = frostCandidateConfigs(),
+  profiles = Object.keys(PROFILE),
+  maxSeconds = 600,
+  config = ENDURANCE_CONFIG,
+} = {}) {
+  const rows = [];
+  const count = Math.max(1, Math.floor(Number(runs) || 1));
+  configs.forEach((frostConfig) => {
+    profiles.forEach((profile, profileIndex) => {
+      for (let index = 0; index < count; index += 1) {
+        const runSeed = hashSeed(seed + index, `frost:${profile}:${profileIndex}`);
+        rows.push(simulateFrostRun({ seed: runSeed, profile, config, frostConfig, maxSeconds }));
+      }
+    });
+  });
+  return {
+    study: 'frost',
+    runs: rows,
+    configs: configs.map((item) => item.id),
+    profiles: [...profiles],
+    runsPerProfile: count,
+    seed: Number(seed),
+    maxSeconds: Number(maxSeconds),
+  };
+}
+
 export function summarizeResults(matrix) {
   const rows = Array.isArray(matrix) ? matrix : matrix?.runs || [];
   const groups = new Map();
@@ -307,6 +569,12 @@ export function summarizeResults(matrix) {
     const missRates = items.map((item) => item.missRate);
     const rowsAdded = items.map((item) => item.rowsAdded);
     const combos = items.map((item) => item.bestCombo);
+    const frostStudy = items.some((item) => Number.isFinite(item.frostShare));
+    const frostSummary = frostStudy ? {
+      medianScorePerMinute: Number(quantile(items.map((item) => item.scorePerMinute), .5).toFixed(2)),
+      meanFrostShare: Number(mean(items.map((item) => item.frostShare)).toFixed(4)),
+      meanFrostOnlyGapRate: Number(mean(items.map((item) => item.frostShots ? item.frostOnlyGapShots / item.frostShots : 0)).toFixed(4)),
+    } : {};
     return {
       configId: configIdValue,
       profile,
@@ -320,6 +588,7 @@ export function summarizeResults(matrix) {
       medianBestCombo: Number(quantile(combos, .5).toFixed(1)),
       reached60Rate: Number((items.filter((item) => item.at60s).length / items.length).toFixed(3)),
       reached120Rate: Number((items.filter((item) => item.at120s).length / items.length).toFixed(3)),
+      ...frostSummary,
     };
   });
 }
@@ -356,7 +625,7 @@ function formatSeconds(ms) {
   return `${(Math.max(0, Number(ms) || 0) / 1000).toFixed(1)}s`;
 }
 
-function markdownReport({ matrix, summary, review }) {
+function markdownReport({ matrix, review }) {
   const lines = [
     '# Endurance balance study',
     '',
@@ -378,8 +647,24 @@ function markdownReport({ matrix, summary, review }) {
   return `${lines.join('\n')}\n`;
 }
 
+function frostMarkdownReport({ matrix, summary }) {
+  const lines = [
+    '# Endurance Frost balance study',
+    '',
+    `Seed: \`${matrix.seed}\` · paired runs/profile/config: **${matrix.runsPerProfile}** · cap: **${matrix.maxSeconds}s**`,
+    '',
+    '| Candidate | Profile | Survival median | Score/min median | Frost share | Frost-only gap rate | Miss rate |',
+    '| --- | --- | ---: | ---: | ---: | ---: | ---: |',
+  ];
+  for (const row of summary) {
+    lines.push(`| ${row.configId} | ${row.profile} | ${formatSeconds(row.medianSurvivalMs)} | ${row.medianScorePerMinute.toFixed(2)} | ${(row.meanFrostShare * 100).toFixed(1)}% | ${(row.meanFrostOnlyGapRate * 100).toFixed(1)}% | ${(row.missRate * 100).toFixed(1)}% |`);
+  }
+  lines.push('', 'Frost candidates use the same seeded weather schedule and paired run seeds. Production tuning is never changed automatically.');
+  return `${lines.join('\n')}\n`;
+}
+
 function parseArgs(argv) {
-  const args = { runs: 250, seed: 1337, output: 'artifacts/endurance-balance', maxSeconds: 600 };
+  const args = { runs: 250, seed: 1337, output: 'artifacts/endurance-balance', maxSeconds: 600, frostStudy: false };
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
     const value = argv[i + 1];
@@ -387,19 +672,30 @@ function parseArgs(argv) {
     else if (key === '--seed' && value) { args.seed = Number(value); i += 1; }
     else if (key === '--output' && value) { args.output = value; i += 1; }
     else if (key === '--max-seconds' && value) { args.maxSeconds = Number(value); i += 1; }
+    else if (key === '--frost-study') { args.frostStudy = true; }
   }
   return args;
 }
 
-export async function writeStudy({ runs = 250, seed = 1337, output = 'artifacts/endurance-balance', maxSeconds = 600 } = {}) {
-  const matrix = runMatrix({ runs, seed, configs: candidateConfigs(), profiles: Object.keys(PROFILE), maxSeconds });
+export async function writeStudy({
+  runs = 250,
+  seed = 1337,
+  output = 'artifacts/endurance-balance',
+  maxSeconds = 600,
+  frostStudy = false,
+} = {}) {
+  const matrix = frostStudy
+    ? runFrostMatrix({ runs, seed, configs: frostCandidateConfigs(), profiles: Object.keys(PROFILE), maxSeconds })
+    : runMatrix({ runs, seed, configs: candidateConfigs(), profiles: Object.keys(PROFILE), maxSeconds });
   const summary = summarizeResults(matrix);
   const review = candidateReview(summary);
-  const payload = { generatedAt: new Date().toISOString(), matrix: { ...matrix, runs: undefined }, summary, review };
+  const payload = frostStudy
+    ? { generatedAt: new Date().toISOString(), study: 'frost', matrix: { ...matrix, runs: undefined }, summary, review }
+    : { generatedAt: new Date().toISOString(), matrix: { ...matrix, runs: undefined }, summary, review };
   const dir = path.dirname(output);
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(`${output}.json`, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-  await fs.writeFile(`${output}.md`, markdownReport({ matrix, summary, review }), 'utf8');
+  await fs.writeFile(`${output}.md`, frostStudy ? frostMarkdownReport({ matrix, summary }) : markdownReport({ matrix, summary, review }), 'utf8');
   return { matrix, summary, review };
 }
 
@@ -407,7 +703,11 @@ const isCli = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(
 if (isCli) {
   const args = parseArgs(process.argv.slice(2));
   const result = await writeStudy(args);
-  const baseline = result.review.find((item) => item.id === 'baseline-60-120');
-  console.log(`Endurance balance study: ${result.matrix.runs.length} runs; baseline ${baseline?.verdict || 'n/a'}`);
+  if (args.frostStudy) {
+    console.log(`Endurance Frost balance study: ${result.matrix.runs.length} paired runs across ${result.matrix.configs.length} collision scales`);
+  } else {
+    const baseline = result.review.find((item) => item.id === 'baseline-60-120');
+    console.log(`Endurance balance study: ${result.matrix.runs.length} runs; baseline ${baseline?.verdict || 'n/a'}`);
+  }
   console.log(`Reports: ${args.output}.json and ${args.output}.md`);
 }
