@@ -118,6 +118,8 @@ jobs:
         run: node .github/scripts/queue-smoke.mjs
       - name: Endurance browser smoke
         run: node .github/scripts/endurance-smoke.mjs
+      - name: Hold-to-aim pointer smoke
+        run: node .github/scripts/pointer-gesture-smoke.mjs
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
