@@ -7,6 +7,30 @@ assert.equal(typeof core.activeGridColors, 'function', 'core should expose activ
 assert.equal(typeof core.reconcileShotQueue, 'function', 'core should expose reconcileShotQueue');
 assert.equal(typeof core.impactFeedback, 'function', 'core should expose impactFeedback');
 assert.equal(typeof physics.shortAimSegment, 'function', 'physics should expose shortAimSegment');
+assert.equal(typeof physics.createPointerShotGesture, 'function', 'physics should expose pointer shot gesture state');
+
+let gesture = physics.createPointerShotGesture();
+assert.equal(gesture.active, false, 'pointer shot gesture should start idle');
+assert.equal(physics.shouldShowAimGuide({ coarsePointer: true, gestureActive: gesture.active }), false, 'touch/coarse aim guide should stay hidden while idle');
+assert.equal(physics.shouldShowAimGuide({ coarsePointer: false, gestureActive: gesture.active }), true, 'desktop aim guide should remain available while idle');
+
+gesture = physics.beginPointerShotGesture(gesture, 7, 'touch');
+assert.deepEqual(gesture, { active: true, pointerId: 7, pointerType: 'touch' }, 'pointerdown should begin aiming without firing');
+assert.equal(physics.ownsPointerShotGesture(gesture, 7), true, 'active pointer should own the aim gesture');
+assert.equal(physics.ownsPointerShotGesture(gesture, 8), false, 'a second pointer must not steal the aim gesture');
+
+const foreignRelease = physics.endPointerShotGesture(gesture, 8);
+assert.equal(foreignRelease.shouldShoot, false, 'releasing a non-owner pointer must not shoot');
+assert.equal(foreignRelease.state.active, true, 'foreign release must keep the original aim gesture active');
+
+const cancelled = physics.endPointerShotGesture(gesture, 7, { cancelled: true });
+assert.equal(cancelled.shouldShoot, false, 'pointercancel must never shoot');
+assert.equal(cancelled.state.active, false, 'pointercancel should end aiming');
+
+gesture = physics.beginPointerShotGesture(cancelled.state, 4, 'mouse');
+const released = physics.endPointerShotGesture(gesture, 4);
+assert.equal(released.shouldShoot, true, 'releasing the owning desktop pointer should fire exactly once');
+assert.equal(released.state.active, false, 'pointerup should end aiming before the shot leaves');
 
 const grid = new Map([['0,0', 1], ['1,0', 3], ['2,0', 3], ['3,0', 6]]);
 assert.deepEqual(core.activeGridColors(grid), [1, 3, 6], 'active colors should be unique and sorted');
