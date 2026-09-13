@@ -76,6 +76,7 @@ jobs:
           node --check src/endurance-geometry.mjs
           node --check src/shot-resolution.mjs
           node --check src/background-fabric.mjs
+          node --check src/background-fabric-runtime.mjs
           node --check src/endurance-renderer.mjs
           node --check src/endurance-game.mjs
           node --check src/levels.mjs
