@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feat/sky-rescue-v1
+      - feat/endurance-mode
       - feat/sky-rescue-v1-wind
       - feat/sky-rescue-v1-pixel
       - feat/integrated-orb-pass
@@ -23,6 +24,32 @@ jobs:
         run: node balloon.test.js
       - name: Sky Rescue tests
         run: node sky-rescue.test.mjs
+      - name: Campaign empty-board regression
+        run: node campaign-empty-board.test.mjs
+      - name: Endurance core tests
+        run: node endurance-core.test.mjs
+      - name: Endurance geometry tests
+        run: node endurance-geometry.test.mjs
+      - name: Shared shot resolver tests
+        run: node shot-resolution.test.mjs
+      - name: Endurance renderer tests
+        run: node endurance-renderer.test.mjs
+      - name: Endurance runtime tests
+        run: node endurance-runtime.test.mjs
+      - name: Endurance weather tests
+        run: node endurance-weather.test.mjs
+      - name: Endurance save migration
+        run: node save.test.mjs
+      - name: Endurance UI contract
+        run: node endurance-ui.test.mjs
+      - name: Endurance visual contract
+        run: node endurance-style.test.mjs
+      - name: Fabric pixel backgrounds
+        run: node background-fabric.test.mjs
+      - name: Endurance special readability tests
+        run: node endurance-specials.test.mjs
+      - name: Endurance balance harness tests
+        run: node endurance-balance.test.mjs
       - name: Wind corridor tests
         run: node wind.test.mjs
       - name: Pixel art contract tests
@@ -47,9 +74,18 @@ jobs:
         run: |
           node --check balloon.js
           node --check src/sky-rescue-core.mjs
+          node --check src/endurance-core.mjs
+          node --check src/endurance-geometry.mjs
+          node --check src/shot-resolution.mjs
+          node --check src/background-fabric.mjs
+          node --check src/background-fabric-runtime.mjs
+          node --check src/endurance-renderer.mjs
+          node --check src/endurance-game.mjs
+          node --check src/endurance-weather.mjs
           node --check src/levels.mjs
           node --check src/save.mjs
           node --check src/game-physics.mjs
+          node --check src/pointer-shot-runtime.mjs
           node --check src/storm-core.mjs
           node --check src/storm-feedback.mjs
           node --check src/pixel-art.mjs
@@ -59,6 +95,7 @@ jobs:
           node --check src/campaign-ui.mjs
           node --check src/audio.mjs
           node --check src/app.mjs
+          node --check tools/endurance-balance.mjs
 
   browser-smoke:
     runs-on: ubuntu-latest
@@ -80,6 +117,10 @@ jobs:
         run: node .github/scripts/visual-smoke.mjs
       - name: In-playfield queue smoke
         run: node .github/scripts/queue-smoke.mjs
+      - name: Endurance browser smoke
+        run: node .github/scripts/endurance-smoke.mjs
+      - name: Hold-to-aim pointer smoke
+        run: node .github/scripts/pointer-gesture-smoke.mjs
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4

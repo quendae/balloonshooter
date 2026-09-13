@@ -7,6 +7,30 @@ assert.equal(typeof core.activeGridColors, 'function', 'core should expose activ
 assert.equal(typeof core.reconcileShotQueue, 'function', 'core should expose reconcileShotQueue');
 assert.equal(typeof core.impactFeedback, 'function', 'core should expose impactFeedback');
 assert.equal(typeof physics.shortAimSegment, 'function', 'physics should expose shortAimSegment');
+assert.equal(typeof physics.createPointerShotGesture, 'function', 'physics should expose pointer shot gesture state');
+
+let gesture = physics.createPointerShotGesture();
+assert.equal(gesture.active, false, 'pointer shot gesture should start idle');
+assert.equal(physics.shouldShowAimGuide({ coarsePointer: true, gestureActive: gesture.active }), false, 'touch/coarse aim guide should stay hidden while idle');
+assert.equal(physics.shouldShowAimGuide({ coarsePointer: false, gestureActive: gesture.active }), true, 'desktop aim guide should remain available while idle');
+
+gesture = physics.beginPointerShotGesture(gesture, 7, 'touch');
+assert.deepEqual(gesture, { active: true, pointerId: 7, pointerType: 'touch' }, 'pointerdown should begin aiming without firing');
+assert.equal(physics.ownsPointerShotGesture(gesture, 7), true, 'active pointer should own the aim gesture');
+assert.equal(physics.ownsPointerShotGesture(gesture, 8), false, 'a second pointer must not steal the aim gesture');
+
+const foreignRelease = physics.endPointerShotGesture(gesture, 8);
+assert.equal(foreignRelease.shouldShoot, false, 'releasing a non-owner pointer must not shoot');
+assert.equal(foreignRelease.state.active, true, 'foreign release must keep the original aim gesture active');
+
+const cancelled = physics.endPointerShotGesture(gesture, 7, { cancelled: true });
+assert.equal(cancelled.shouldShoot, false, 'pointercancel must never shoot');
+assert.equal(cancelled.state.active, false, 'pointercancel should end aiming');
+
+gesture = physics.beginPointerShotGesture(cancelled.state, 4, 'mouse');
+const released = physics.endPointerShotGesture(gesture, 4);
+assert.equal(released.shouldShoot, true, 'releasing the owning desktop pointer should fire exactly once');
+assert.equal(released.state.active, false, 'pointerup should end aiming before the shot leaves');
 
 const grid = new Map([['0,0', 1], ['1,0', 3], ['2,0', 3], ['3,0', 6]]);
 assert.deepEqual(core.activeGridColors(grid), [1, 3, 6], 'active colors should be unique and sorted');
@@ -25,6 +49,22 @@ const segment = physics.shortAimSegment({ x: 120, y: 288, angle: -Math.PI / 2, l
 assert.deepEqual(segment.start, { x: 120, y: 276 }, 'short aim guide should begin just above the current orb');
 assert.ok(Math.abs(segment.end.x - 120) < 1e-9, 'vertical aim should stay centered');
 assert.equal(segment.end.y, 240, 'short aim guide should be short and non-predictive');
+
+assert.equal(physics.MIN_AIM_RADIANS, .18);
+assert.equal(physics.aimInputMaxY(288), 284);
+assert.ok(Math.abs(physics.clampAimAngle(-.01) + .18) < 1e-9);
+assert.ok(Math.abs(physics.clampAimAngle(-Math.PI + .01) - (-Math.PI + .18)) < 1e-9);
+
+const collisionGeometry = {
+  RAD: 12,
+  split: (key) => key.split(',').map(Number),
+  colX: (c) => c * 24 + 12,
+  rowY: (r) => r * 20 + 12,
+  dist: (x1, y1, x2, y2) => Math.hypot(x1 - x2, y1 - y2),
+};
+const collisionGrid = new Map([['0,0', 1]]);
+assert.equal(physics.projectileCollidesGrid({ grid: collisionGrid, geometry: collisionGeometry, x: 34, y: 12, collisionScale: 1 }), true);
+assert.equal(physics.projectileCollidesGrid({ grid: collisionGrid, geometry: collisionGeometry, x: 34, y: 12, collisionScale: .82 }), false);
 
 const small = core.impactFeedback({ popped: 3, dropped: 0, special: 'normal', boss: false });
 const avalanche = core.impactFeedback({ popped: 4, dropped: 8, special: 'normal', boss: false });

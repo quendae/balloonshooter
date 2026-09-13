@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="styles/integrated.css">
   <link rel="stylesheet" href="styles/rack.css">
   <link rel="stylesheet" href="styles/storm.css">
+  <link rel="stylesheet" href="styles/endurance.css">
 </head>
 <body class="pixel-art">
   <div class="sky-decor sky-decor-a" aria-hidden="true"></div>
@@ -45,12 +46,15 @@
           <h1 id="campaignTitle">Dwadzieścia układów. Jedna dobra linia.</h1>
           <p>Klasyczne kulki, ręcznie zbudowane plansze i kilka zasad, które zmieniają sposób celowania.</p>
         </div>
-        <button class="button button-primary button-large" id="continueButton" type="button">Graj</button>
+        <div class="campaign-actions">
+          <button class="button button-primary button-large" id="continueButton" type="button">Graj</button>
+          <button class="button button-secondary button-large" id="enduranceButton" type="button">Endurance</button>
+        </div>
       </div>
       <div class="campaign-map" id="campaignMap" aria-label="Mapa kampanii"></div>
     </section>
 
-    <section class="screen game-screen" id="gameScreen" hidden aria-label="Rozgrywka">
+    <section class="screen game-screen" id="gameScreen" hidden aria-label="Rozgrywka" data-mode="campaign" data-palette-stage="0">
       <div class="game-layout">
         <div class="playfield-frame">
           <div class="playfield-hud playfield-hud-top">
@@ -63,7 +67,8 @@
               <span id="gameWorldLabel">Świat</span>
               <strong id="gameLevelLabel">Poziom</strong>
             </div>
-            <div class="score-compact">
+            <span class="endurance-weather-badge" id="enduranceWeatherBadge" data-weather="clear" hidden aria-live="polite">☀ CLEAR</span>
+            <div class="score-compact" aria-label="Wynik i combo">
               <strong id="scoreValue">0</strong>
               <span class="combo-value" id="comboValue">—</span>
             </div>
@@ -71,7 +76,7 @@
           </div>
 
           <div class="playfield-canvas-wrap">
-            <canvas id="gameCanvas" width="240" height="320" aria-label="Pole gry Sky Rescue"></canvas>
+            <canvas id="gameCanvas" width="240" height="320" aria-label="Pole gry Sky Rescue. Przytrzymaj i przeciągnij, aby celować; puść, aby strzelić."></canvas>
             <div class="combo-callout" id="comboCallout" role="status" aria-live="polite"></div>
           </div>
 
@@ -81,9 +86,9 @@
               <div class="shot-queue" id="shotQueue" aria-label="Aktualna i dwie następne kulki"></div>
             </div>
             <dl class="run-stats run-stats-inline">
-              <div><dt>Strzały</dt><dd id="shotsValue">0</dd></div>
-              <div><dt>Sufit</dt><dd id="dropValue">0</dd></div>
-              <div><dt>Pudła</dt><dd id="missesValue">0</dd></div>
+              <div><dt id="statOneLabel">Strzały</dt><dd id="shotsValue">0</dd></div>
+              <div><dt id="statTwoLabel">Sufit</dt><dd id="dropValue">0</dd></div>
+              <div><dt id="statThreeLabel">Pudła</dt><dd id="missesValue">0</dd></div>
             </dl>
             <div class="boss-meter" id="bossMeter" hidden>
               <div id="bossPips" class="boss-pips" aria-label="Postęp bossa"></div>
@@ -93,6 +98,21 @@
       </div>
     </section>
   </main>
+
+  <dialog class="game-dialog endurance-dialog" id="enduranceDialog" aria-labelledby="enduranceTitle">
+    <p class="dialog-kicker">Tryb punktowy</p>
+    <h2 id="enduranceTitle">Endurance</h2>
+    <p class="endurance-rule">Pudło = nowy rząd</p>
+    <dl class="endurance-records">
+      <div><dt>Best Score</dt><dd id="enduranceBestScore">0</dd></div>
+      <div><dt>Best Time</dt><dd id="enduranceBestTime">00:00</dd></div>
+      <div><dt>Best Combo</dt><dd id="enduranceBestCombo">0</dd></div>
+    </dl>
+    <div class="dialog-actions">
+      <button class="button button-ghost" id="enduranceBackButton" type="button">Wróć</button>
+      <button class="button button-primary" id="enduranceStartButton" type="button">Start</button>
+    </div>
+  </dialog>
 
   <dialog class="game-dialog result-dialog" id="resultDialog" aria-labelledby="resultTitle">
     <p class="dialog-kicker" id="resultKicker">Poziom ukończony</p>
@@ -118,6 +138,13 @@
   </dialog>
 
   <script src="balloon.js"></script>
-  <script type="module" src="src/app.mjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js" crossorigin="anonymous"></script>
+  <script type="module">
+    import { installFabricPixelBackgrounds } from './src/background-fabric-runtime.mjs';
+    import { applyHoldToAimPatch } from './src/pointer-shot-runtime.mjs';
+    installFabricPixelBackgrounds();
+    applyHoldToAimPatch();
+    await import('./src/app.mjs');
+  </script>
 </body>
 </html>

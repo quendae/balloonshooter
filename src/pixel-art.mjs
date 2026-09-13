@@ -47,15 +47,6 @@ const OBJECT_BITMAPS = {
   ].join('/'),
 };
 
-const SPECIAL_BITMAPS = {
-  bomb: [
-    '0000006600','0000066000','0000110000','0001111000','0012222100','0122332210','0122222210','0122222210','0012222100','0001111000',
-  ].join('/'),
-  rainbow: [
-    '0000000000','0011111100','0122222210','1233333321','2344444432','3455555543','4500000054','5000000005','0000000000','0000000000',
-  ].join('/'),
-};
-
 export function decodeBitmap(bitmap) {
   const rows = String(bitmap || '').split('/');
   const width = rows[0]?.length || 0;
@@ -161,24 +152,119 @@ export function drawPixelObject(ctx, type, x, y) {
   drawBitmap(ctx, bitmap, palettes[type], x, y, 1);
 }
 
-export function drawPixelSpecial(ctx, type, x, y) {
-  if (type === 'bomb') {
-    drawBitmap(ctx, SPECIAL_BITMAPS.bomb, { 1: '#121A28', 2: '#303A4A', 3: '#FFFFFF', 6: '#FFD24C' }, x, y, 1);
-  } else if (type === 'rainbow') {
-    drawBitmap(ctx, SPECIAL_BITMAPS.rainbow, { 1: '#E84B5B', 2: '#F4C542', 3: '#55B95F', 4: '#3E8FE8', 5: '#8B59D5' }, x, y, 1);
-  } else if (type === 'guide') {
-    ctx.fillStyle = '#F8FCFF';
-    const px = Math.round(x);
-    const py = Math.round(y);
-    ctx.fillRect(px - 11, py - 11, 7, 2);
-    ctx.fillRect(px - 11, py - 11, 2, 7);
-    ctx.fillRect(px + 4, py - 11, 7, 2);
-    ctx.fillRect(px + 9, py - 11, 2, 7);
-    ctx.fillRect(px - 11, py + 9, 7, 2);
-    ctx.fillRect(px - 11, py + 4, 2, 7);
-    ctx.fillRect(px + 4, py + 9, 7, 2);
-    ctx.fillRect(px + 9, py + 4, 2, 7);
+function specialCircle(ctx, fill, outline, lineWidth = 2) {
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = outline;
+  ctx.lineWidth = lineWidth;
+  ctx.beginPath();
+  ctx.arc(0, 0, 12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+}
+
+function drawBombOrb(ctx, x, y, scale = 1, time = 0) {
+  const pulse = .5 + .5 * Math.sin(time * .012);
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  specialCircle(ctx, '#252d39', '#0b1119', 2.2);
+  ctx.fillStyle = '#424c5c';
+  ctx.beginPath();
+  ctx.arc(-3.5, -3.5, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#ffb52b';
+  ctx.beginPath();
+  ctx.arc(2, 2, 4 + pulse * 1.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff1a8';
+  ctx.beginPath();
+  ctx.arc(.8, .7, 1.7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#1b2430';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(5, -7); ctx.quadraticCurveTo(8, -13, 10, -11);
+  ctx.stroke();
+  ctx.fillStyle = pulse > .55 ? '#fff27c' : '#ff7a32';
+  ctx.fillRect(9, -13, 2.5, 2.5);
+  ctx.restore();
+}
+
+function drawRainbowOrb(ctx, x, y, scale = 1, time = 0) {
+  const colors = ['#e84b5b', '#f4c542', '#55b95f', '#3e8fe8', '#8b59d5', '#ef8842'];
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  ctx.lineWidth = 2;
+  for (let i = 0; i < colors.length; i += 1) {
+    ctx.fillStyle = colors[i];
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, 12, (i / colors.length) * Math.PI * 2 - Math.PI / 2, ((i + 1) / colors.length) * Math.PI * 2 - Math.PI / 2);
+    ctx.closePath();
+    ctx.fill();
   }
+  ctx.strokeStyle = '#f8fbff';
+  ctx.beginPath();
+  ctx.arc(0, 0, 12, 0, Math.PI * 2);
+  ctx.stroke();
+  const shimmer = ((time * .018) % 22) - 11;
+  ctx.globalAlpha = .55;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(shimmer - 3, -8); ctx.lineTo(shimmer + 3, 8);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = 'rgba(255,255,255,.8)';
+  ctx.beginPath();
+  ctx.arc(-4, -5, 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawGuideOrb(ctx, x, y, scale = 1, time = 0) {
+  const pulse = .65 + .35 * Math.sin(time * .01);
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+
+  ctx.strokeStyle = `rgba(238,250,255,${.72 + pulse * .24})`;
+  ctx.lineWidth = 1.35;
+  ctx.beginPath();
+  ctx.arc(0, 0, 12.7 + pulse * .55, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(22,77,114,.92)';
+  ctx.lineWidth = 1.15;
+  ctx.beginPath();
+  ctx.arc(0, 0, 9.1, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = '#f5fcff';
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(-14, 0); ctx.lineTo(-9.5, 0);
+  ctx.moveTo(14, 0); ctx.lineTo(9.5, 0);
+  ctx.moveTo(0, -14); ctx.lineTo(0, -9.5);
+  ctx.moveTo(0, 14); ctx.lineTo(0, 9.5);
+  ctx.stroke();
+
+  ctx.fillStyle = '#164d72';
+  ctx.fillRect(-1, -1, 2, 2);
+  ctx.restore();
+}
+
+export function drawSpecialOrb(ctx, type, x, y, scale = 1, time = 0) {
+  if (type === 'bomb') return drawBombOrb(ctx, x, y, scale, time);
+  if (type === 'rainbow') return drawRainbowOrb(ctx, x, y, scale, time);
+  if (type === 'guide') return drawGuideOrb(ctx, x, y, scale, time);
+  return false;
+}
+
+export function drawPixelSpecial(ctx, type, x, y) {
+  const time = Number(globalThis.performance?.now?.()) || 0;
+  return drawSpecialOrb(ctx, type, x, y, 1, time);
 }
 
 export function drawPixelLauncher(ctx, x, y) {

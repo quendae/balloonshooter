@@ -76,6 +76,16 @@ export function evaluateObjective(objective = { type: 'clear' }, state = {}) {
   }
 }
 
+export function campaignTerminalDecision(objective = { type: 'clear' }, state = {}) {
+  const evaluation = evaluateObjective(objective, state);
+  const empty = Math.max(0, Number(state.remainingBalloons) || 0) === 0;
+  return {
+    complete: Boolean(evaluation.complete || empty),
+    fallbackEmptyBoard: Boolean(empty && !evaluation.complete),
+    evaluation,
+  };
+}
+
 export function calculateStars({ completed, score = 0, thresholds = [0, 1000, 1800], optionalComplete = false }) {
   if (!completed) return 0;
   const twoStar = Number(thresholds[1]) || 0;

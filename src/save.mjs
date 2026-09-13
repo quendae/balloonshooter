@@ -20,6 +20,11 @@ export function normalizeProgress(raw) {
   return {
     version: 1,
     levels,
+    endurance: {
+      bestScore: Math.max(0, Number(source.endurance?.bestScore) || 0),
+      bestTimeMs: Math.max(0, Number(source.endurance?.bestTimeMs) || 0),
+      bestCombo: Math.max(0, Math.floor(Number(source.endurance?.bestCombo) || 0)),
+    },
     settings: {
       sound: source.settings?.sound !== false,
     },

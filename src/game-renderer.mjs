@@ -94,6 +94,7 @@ function skyPalette(world, timeOfDay) {
   if (timeOfDay === 'night') return ['#08172f', '#173451', '#496274'];
   if (timeOfDay === 'dusk') return ['#263d68', '#776b8e', '#d69a78'];
   if (timeOfDay === 'sunset') return ['#5877ad', '#e58f83', '#f4cf8b'];
+  if (timeOfDay === 'late-day') return ['#4f92cb', '#91c4d7', '#e7d7a6'];
   if (timeOfDay === 'morning') return ['#64afe3', '#a7d8ed', '#f4e8bd'];
   if (world === 'storm') return ['#263b56', '#56697a', '#9ca6a5'];
   if (world === 'forest') return ['#467597', '#8db5b1', '#d5d19f'];
@@ -107,6 +108,7 @@ export class GameRenderer {
     this.ctx = canvas.getContext('2d');
     this.B = B;
     this.orbSprites = new Map();
+    this.animationTime = 0;
     canvas.width = B.LW * RENDER_SCALE;
     canvas.height = B.LH * RENDER_SCALE;
     this.ctx.setTransform(RENDER_SCALE, 0, 0, RENDER_SCALE, 0, 0);
@@ -128,6 +130,7 @@ export class GameRenderer {
   }
 
   draw(state, time = 0) {
+    this.animationTime = time;
     const ctx = this.ctx;
     ctx.clearRect(0, 0, this.B.LW, this.B.LH);
     ctx.fillStyle = '#17324a';
@@ -239,16 +242,17 @@ export class GameRenderer {
   drawMeadowBackdrop(time, atmosphere) {
     const ctx = this.ctx;
     const timeOfDay = atmosphere?.timeOfDay || 'day';
-    const sunX = timeOfDay === 'morning' ? 58 : timeOfDay === 'sunset' ? 205 : 194;
-    const sunY = timeOfDay === 'sunset' ? 176 : timeOfDay === 'morning' ? 72 : 56;
+    const sunX = timeOfDay === 'morning' ? 58 : timeOfDay === 'sunset' ? 205 : timeOfDay === 'late-day' ? 208 : 194;
+    const sunY = timeOfDay === 'sunset' ? 176 : timeOfDay === 'late-day' ? 112 : timeOfDay === 'morning' ? 72 : 56;
     const sun = ctx.createRadialGradient(sunX, sunY, 2, sunX, sunY, 30);
     sun.addColorStop(0, timeOfDay === 'sunset' ? 'rgba(255,236,184,.98)' : 'rgba(255,248,198,.95)');
-    sun.addColorStop(.42, timeOfDay === 'sunset' ? 'rgba(255,167,91,.74)' : 'rgba(255,230,138,.72)');
+    sun.addColorStop(.42, timeOfDay === 'sunset' || timeOfDay === 'late-day' ? 'rgba(255,167,91,.74)' : 'rgba(255,230,138,.72)');
     sun.addColorStop(1, 'rgba(255,230,138,0)');
     ctx.fillStyle = sun;
     ctx.fillRect(sunX - 34, sunY - 34, 68, 68);
 
-    const drift = (time * .0028) % 300;
+    const driftMultiplier = timeOfDay === 'late-day' ? .0038 : timeOfDay === 'sunset' ? .0042 : .0028;
+    const drift = (time * driftMultiplier) % 300;
     drawCloudBand(ctx, -46 + drift, 70, 78, 20, .62, '#fffdf4', '#cbd8dc', 5);
     drawCloudBand(ctx, 78 + drift * .34, 111, 58, 15, .44, '#ffffff', '#cbd8dc', 4);
     drawCloudBand(ctx, 218 - drift * .18, 90, 50, 13, .34, '#ffffff', '#cbd8dc', 4);
@@ -343,6 +347,9 @@ export class GameRenderer {
 
     if (timeOfDay === 'sunset') {
       ctx.fillStyle = 'rgba(255,116,74,.08)';
+      ctx.fillRect(0, 0, this.B.LW, this.B.LH);
+    } else if (timeOfDay === 'late-day') {
+      ctx.fillStyle = 'rgba(255,178,92,.045)';
       ctx.fillRect(0, 0, this.B.LW, this.B.LH);
     } else if (timeOfDay === 'dusk') {
       ctx.fillStyle = 'rgba(38,36,82,.14)';
@@ -532,7 +539,7 @@ export class GameRenderer {
     ctx.restore();
   }
 
-  drawOrbRack(queue, projectileActive) {
+  drawOrbRack(queue, projectileActive, baseScale = 1) {
     const layout = orbRackLayout(this.B, projectileActive);
     const ctx = this.ctx;
     const sockets = [layout.current, ...layout.next].filter(Boolean);
@@ -548,16 +555,16 @@ export class GameRenderer {
     for (const socket of sockets) {
       ctx.fillStyle = 'rgba(10, 31, 38, .24)';
       ctx.beginPath();
-      ctx.ellipse(socket.x, layout.railY - 1.5, 11 * socket.scale, 3 * socket.scale, 0, 0, Math.PI * 2);
+      ctx.ellipse(socket.x, layout.railY - 1.5, 11 * socket.scale * baseScale, 3 * socket.scale * baseScale, 0, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();
 
-    if (layout.current && queue[0]) this.drawShot(queue[0], layout.current.x, layout.current.y, layout.current.scale);
+    if (layout.current && queue[0]) this.drawShot(queue[0], layout.current.x, layout.current.y, layout.current.scale * baseScale);
     const nextShots = projectileActive ? queue.slice(0, 2) : queue.slice(1, 3);
     nextShots.forEach((shot, index) => {
       const slot = layout.next[index];
-      if (slot) this.drawShot(shot, slot.x, slot.y, slot.scale);
+      if (slot) this.drawShot(shot, slot.x, slot.y, slot.scale * baseScale);
     });
   }
 

@@ -119,10 +119,17 @@ test('all authored cells fit the alternating 10/9-column hex board', () => {
 });
 
 test('save normalization recovers safely from invalid or partial data', () => {
-  assert.deepEqual(normalizeProgress(null), { version: 1, levels: {}, settings: { sound: true } });
+  const emptyEndurance = { bestScore: 0, bestTimeMs: 0, bestCombo: 0 };
+  assert.deepEqual(normalizeProgress(null), {
+    version: 1,
+    levels: {},
+    endurance: emptyEndurance,
+    settings: { sound: true },
+  });
   assert.deepEqual(normalizeProgress({ version: 1, levels: { 'meadow-01': { stars: 9, score: -5, masteries: ['bank-shot', 'garbage', 'bank-shot'] } } }), {
     version: 1,
     levels: { 'meadow-01': { stars: 3, score: 0, completed: true, masteries: ['bank-shot'] } },
+    endurance: emptyEndurance,
     settings: { sound: true },
   });
 });

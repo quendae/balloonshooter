@@ -3,8 +3,10 @@ import {
   BALLOON_BITMAPS,
   PIXEL_COLORS,
   decodeBitmap,
+  drawSpecialOrb,
   WORLD_PIXEL_PALETTES,
 } from './src/pixel-art.mjs';
+import { drawPixelFrostOverlay } from './src/frost-shot-runtime.mjs';
 
 function test(name, fn) {
   try {
@@ -47,4 +49,32 @@ test('every campaign world has a dedicated pixel backdrop palette', () => {
       assert.match(palette[key], /^#[0-9A-F]{6}$/i, `${key} should be a six-digit hex color`);
     }
   }
+});
+
+test('special shots expose a dedicated full-orb renderer', () => {
+  assert.equal(typeof drawSpecialOrb, 'function');
+});
+
+test('Frost is a thin overlay that never repaints the full orb body', () => {
+  const calls = [];
+  const frostCtx = new Proxy({
+    globalAlpha: 1,
+    save() {}, restore() {}, translate() {}, beginPath() {},
+    arc(...args) { calls.push(['arc', ...args]); },
+    stroke() { calls.push(['stroke']); },
+    fillRect(...args) { calls.push(['fillRect', ...args]); },
+  }, {
+    get(target, prop) {
+      if (prop in target) return target[prop];
+      return target[prop] = () => {};
+    },
+  });
+  drawPixelFrostOverlay(frostCtx, 0, 0, 0);
+  assert.ok(calls.some(([type]) => type === 'arc'));
+  assert.ok(calls.filter(([type]) => type === 'fillRect').length >= 4);
+  assert.equal(
+    calls.some(([type, x, y, w, h]) => type === 'fillRect' && w >= 20 && h >= 20),
+    false,
+    'Frost must not cover the orb body',
+  );
 });
