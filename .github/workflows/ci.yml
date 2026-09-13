@@ -89,43 +89,6 @@ jobs:
           node --check src/app.mjs
           node --check tools/endurance-balance.mjs
 
-  balance-specials:
-    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[balance-specials]')
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Review baseline special value
-        run: |
-          node --input-type=module <<'NODE'
-          import { candidateConfigs, runMatrix } from './tools/endurance-balance.mjs';
-          const matrix = runMatrix({
-            runs: 250,
-            seed: 1337,
-            configs: [candidateConfigs()[0]],
-            profiles: ['casual', 'average', 'strong'],
-            maxSeconds: 600,
-          });
-          for (const profile of ['casual', 'average', 'strong']) {
-            const runs = matrix.runs.filter((run) => run.profile === profile);
-            const row = { profile };
-            for (const type of ['guide', 'bomb', 'rainbow']) {
-              const used = runs.reduce((sum, run) => sum + run.specials[type].used, 0);
-              const successful = runs.reduce((sum, run) => sum + run.specials[type].successful, 0);
-              const removed = runs.reduce((sum, run) => sum + run.specials[type].removed, 0);
-              row[type] = {
-                used,
-                successRate: used ? Number((successful / used).toFixed(3)) : 0,
-                removedPerUse: used ? Number((removed / used).toFixed(2)) : 0,
-              };
-            }
-            console.log(JSON.stringify(row));
-          }
-          NODE
-
   browser-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 10
