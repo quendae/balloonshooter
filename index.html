@@ -76,7 +76,7 @@
           </div>
 
           <div class="playfield-canvas-wrap">
-            <canvas id="gameCanvas" width="240" height="320" aria-label="Pole gry Sky Rescue"></canvas>
+            <canvas id="gameCanvas" width="240" height="320" aria-label="Pole gry Sky Rescue. Przytrzymaj i przeciągnij, aby celować; puść, aby strzelić."></canvas>
             <div class="combo-callout" id="comboCallout" role="status" aria-live="polite"></div>
           </div>
 
@@ -141,7 +141,9 @@
   <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js" crossorigin="anonymous"></script>
   <script type="module">
     import { installFabricPixelBackgrounds } from './src/background-fabric-runtime.mjs';
+    import { applyHoldToAimPatch } from './src/pointer-shot-runtime.mjs';
     installFabricPixelBackgrounds();
+    applyHoldToAimPatch();
     await import('./src/app.mjs');
   </script>
 </body>
