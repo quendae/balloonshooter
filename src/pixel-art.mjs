@@ -3,7 +3,7 @@ export const CLASSIC_ORB_PALETTE = [
   { base: '#a05cf0', dark: '#5a2a9c', light: '#cfa8ff' },
   { base: '#ffd93d', dark: '#b09000', light: '#fff0a0' },
   { base: '#4cc94c', dark: '#157d2a', light: '#a8f0a0' },
-  { base: '#4da3ff', dark: '#164e9c', light: '#a8d8ff' },
+  { base: '#4da3ff', dark: '#157d2a', light: '#a8f0a0' },
   { base: '#ff6fb3', dark: '#a32a68', light: '#ffb3d8' },
 ];
 
