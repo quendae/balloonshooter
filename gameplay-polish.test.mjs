@@ -26,6 +26,22 @@ assert.deepEqual(segment.start, { x: 120, y: 276 }, 'short aim guide should begi
 assert.ok(Math.abs(segment.end.x - 120) < 1e-9, 'vertical aim should stay centered');
 assert.equal(segment.end.y, 240, 'short aim guide should be short and non-predictive');
 
+assert.equal(physics.MIN_AIM_RADIANS, .18);
+assert.equal(physics.aimInputMaxY(288), 284);
+assert.ok(Math.abs(physics.clampAimAngle(-.01) + .18) < 1e-9);
+assert.ok(Math.abs(physics.clampAimAngle(-Math.PI + .01) - (-Math.PI + .18)) < 1e-9);
+
+const collisionGeometry = {
+  RAD: 12,
+  split: (key) => key.split(',').map(Number),
+  colX: (c) => c * 24 + 12,
+  rowY: (r) => r * 20 + 12,
+  dist: (x1, y1, x2, y2) => Math.hypot(x1 - x2, y1 - y2),
+};
+const collisionGrid = new Map([['0,0', 1]]);
+assert.equal(physics.projectileCollidesGrid({ grid: collisionGrid, geometry: collisionGeometry, x: 34, y: 12, collisionScale: 1 }), true);
+assert.equal(physics.projectileCollidesGrid({ grid: collisionGrid, geometry: collisionGeometry, x: 34, y: 12, collisionScale: .82 }), false);
+
 const small = core.impactFeedback({ popped: 3, dropped: 0, special: 'normal', boss: false });
 const avalanche = core.impactFeedback({ popped: 4, dropped: 8, special: 'normal', boss: false });
 const bomb = core.impactFeedback({ popped: 5, dropped: 2, special: 'bomb', boss: false });
