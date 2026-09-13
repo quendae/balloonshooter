@@ -26,7 +26,7 @@ const refs = {
   dropValue: $('dropValue'), missesValue: $('missesValue'), statOneLabel: $('statOneLabel'), statTwoLabel: $('statTwoLabel'),
   statThreeLabel: $('statThreeLabel'), comboCallout: $('comboCallout'), bossMeter: $('bossMeter'), bossPips: $('bossPips'),
   enduranceDialog: $('enduranceDialog'), enduranceStartButton: $('enduranceStartButton'), enduranceBackButton: $('enduranceBackButton'),
-  enduranceBestScore: $('enduranceBestScore'), enduranceBestTime: $('enduranceBestTime'), enduranceBestRound: $('enduranceBestRound'),
+  enduranceBestScore: $('enduranceBestScore'), enduranceBestTime: $('enduranceBestTime'), enduranceBestCombo: $('enduranceBestCombo'),
   resultDialog: $('resultDialog'), resultKicker: $('resultKicker'), resultTitle: $('resultTitle'), resultStars: $('resultStars'),
   resultScore: $('resultScore'), resultDetail: $('resultDetail'), resultMasteries: $('resultMasteries'),
   resultMapButton: $('resultMapButton'), retryButton: $('retryButton'), nextButton: $('nextButton'), pauseDialog: $('pauseDialog'),
@@ -116,20 +116,20 @@ function renderMap() {
 }
 
 function renderEnduranceRecords() {
-  const record = progress.endurance || { bestScore: 0, bestTimeMs: 0, bestRound: 0 };
+  const record = progress.endurance || { bestScore: 0, bestTimeMs: 0, bestCombo: 0 };
   refs.enduranceBestScore.textContent = record.bestScore.toLocaleString('pl-PL');
   refs.enduranceBestTime.textContent = formatDuration(record.bestTimeMs);
-  refs.enduranceBestRound.textContent = String(record.bestRound);
+  refs.enduranceBestCombo.textContent = String(record.bestCombo);
 }
 
 function updateEnduranceRecords(result) {
-  const previous = progress.endurance || { bestScore: 0, bestTimeMs: 0, bestRound: 0 };
+  const previous = progress.endurance || { bestScore: 0, bestTimeMs: 0, bestCombo: 0 };
   const next = {
     bestScore: Math.max(previous.bestScore || 0, Number(result.score) || 0),
     bestTimeMs: Math.max(previous.bestTimeMs || 0, Number(result.elapsedMs) || 0),
-    bestRound: Math.max(previous.bestRound || 0, Number(result.round) || 0),
+    bestCombo: Math.max(previous.bestCombo || 0, Number(result.bestCombo) || 0),
   };
-  const improved = next.bestScore > previous.bestScore || next.bestTimeMs > previous.bestTimeMs || next.bestRound > previous.bestRound;
+  const improved = next.bestScore > previous.bestScore || next.bestTimeMs > previous.bestTimeMs || next.bestCombo > previous.bestCombo;
   progress = saveProgress({ ...progress, endurance: next });
   renderEnduranceRecords();
   return improved;
@@ -155,7 +155,7 @@ function showMap() {
   activeMode = 'campaign';
   runMastery = null;
   refs.gameScreen.dataset.mode = activeMode;
-  refs.gameScreen.dataset.spatialStage = '0';
+  refs.gameScreen.dataset.paletteStage = '0';
   if (refs.pauseDialog.open) refs.pauseDialog.close();
   if (refs.resultDialog.open) refs.resultDialog.close();
   if (refs.enduranceDialog.open) refs.enduranceDialog.close();
@@ -173,7 +173,7 @@ function startLevel(level) {
   resetRunMastery();
   const world = getWorld(level.world);
   refs.gameScreen.dataset.mode = activeMode;
-  refs.gameScreen.dataset.spatialStage = '0';
+  refs.gameScreen.dataset.paletteStage = '0';
   refs.mapScreen.hidden = true;
   refs.gameScreen.hidden = false;
   refs.gameWorldLabel.textContent = world?.name || 'Sky Rescue';
@@ -202,18 +202,18 @@ function startEndurance() {
   currentLevel = null;
   runMastery = null;
   refs.gameScreen.dataset.mode = activeMode;
-  refs.gameScreen.dataset.spatialStage = '0';
+  refs.gameScreen.dataset.paletteStage = '0';
   refs.mapScreen.hidden = true;
   refs.gameScreen.hidden = false;
   refs.gameWorldLabel.textContent = 'Tryb punktowy';
   refs.gameLevelLabel.textContent = 'Endurance';
-  refs.objectiveLabel.textContent = 'Przetrwaj';
-  refs.objectiveCurrent.textContent = '1';
-  refs.objectiveTarget.textContent = '∞';
+  refs.objectiveLabel.textContent = '';
+  refs.objectiveCurrent.textContent = '';
+  refs.objectiveTarget.textContent = '';
   refs.bossMeter.hidden = true;
-  refs.statOneLabel.textContent = 'Runda';
-  refs.statTwoLabel.textContent = 'Do rzędu';
-  refs.statThreeLabel.textContent = 'Czas';
+  refs.statOneLabel.textContent = 'Czas';
+  refs.statTwoLabel.textContent = 'Kolory';
+  refs.statThreeLabel.textContent = '';
   if (refs.enduranceDialog.open) refs.enduranceDialog.close();
   if (refs.resultDialog.open) refs.resultDialog.close();
   if (refs.pauseDialog.open) refs.pauseDialog.close();
@@ -226,21 +226,22 @@ function startEndurance() {
 function updateHud(snapshot) {
   if (!snapshot) return;
   refs.gameScreen.dataset.mode = activeMode;
-  refs.gameScreen.dataset.spatialStage = String(snapshot.spatialStage ?? 0);
 
   if (snapshot.mode === 'endurance') {
-    refs.statOneLabel.textContent = 'Runda';
-    refs.statTwoLabel.textContent = 'Do rzędu';
-    refs.statThreeLabel.textContent = 'Czas';
-    refs.objectiveLabel.textContent = 'Przetrwaj';
-    refs.objectiveCurrent.textContent = String(snapshot.round);
-    refs.objectiveTarget.textContent = '∞';
+    refs.gameScreen.dataset.paletteStage = String(snapshot.paletteStage ?? 0);
+    refs.statOneLabel.textContent = 'Czas';
+    refs.statTwoLabel.textContent = 'Kolory';
+    refs.statThreeLabel.textContent = '';
+    refs.objectiveLabel.textContent = '';
+    refs.objectiveCurrent.textContent = '';
+    refs.objectiveTarget.textContent = '';
     refs.gameWorldLabel.textContent = 'Tryb punktowy';
-    refs.gameLevelLabel.textContent = `Runda ${snapshot.round}`;
-    refs.shotsValue.textContent = String(snapshot.round);
-    refs.dropValue.textContent = String(snapshot.shotsUntilRow);
-    refs.missesValue.textContent = formatDuration(snapshot.elapsedMs);
+    refs.gameLevelLabel.textContent = 'Endurance';
+    refs.shotsValue.textContent = formatDuration(snapshot.elapsedMs);
+    refs.dropValue.textContent = String(snapshot.colorCount);
+    refs.missesValue.textContent = '';
   } else {
+    refs.gameScreen.dataset.paletteStage = '0';
     if (runMastery && snapshot.shotsUsed > runMastery.lastShotsUsed) {
       if (runMastery.pendingBounced && snapshot.combo > 0) runMastery.successfulBankShots += 1;
       runMastery.pendingBounced = false;
@@ -321,10 +322,10 @@ function showEnduranceEnd(result) {
   const improved = updateEnduranceRecords(result);
   audio.loss();
   refs.resultKicker.textContent = improved ? 'Nowy rekord' : 'Endurance zakończony';
-  refs.resultTitle.textContent = `Runda ${result.round}`;
+  refs.resultTitle.textContent = `Combo ${result.bestCombo}`;
   refs.resultScore.textContent = result.score.toLocaleString('pl-PL');
   refs.resultStars.hidden = true;
-  refs.resultDetail.textContent = `${formatDuration(result.elapsedMs)} • ${result.resolvedShots} strzałów • ${result.reason}`;
+  refs.resultDetail.textContent = `${formatDuration(result.elapsedMs)} • combo ${result.bestCombo} • ${result.resolvedShots} strzałów • ${result.misses} pudeł • ${result.rowsAdded} nowych rzędów • ${result.reason}`;
   refs.resultMasteries.hidden = true;
   refs.retryButton.textContent = 'Jeszcze raz';
   refs.nextButton.hidden = true;
