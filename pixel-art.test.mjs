@@ -3,10 +3,10 @@ import {
   BALLOON_BITMAPS,
   PIXEL_COLORS,
   decodeBitmap,
-  drawPixelFrostOverlay,
   drawSpecialOrb,
   WORLD_PIXEL_PALETTES,
 } from './src/pixel-art.mjs';
+import { drawPixelFrostOverlay } from './src/frost-shot-runtime.mjs';
 
 function test(name, fn) {
   try {
