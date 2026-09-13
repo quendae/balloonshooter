@@ -17,6 +17,13 @@ import {
   shiftGridForNewRow,
 } from './endurance-geometry.mjs';
 import {
+  ENDURANCE_WEATHER_CONFIG,
+  advanceEnduranceWeather,
+  createEnduranceWeatherState,
+  weatherShotMetadata,
+  weatherTransitionProgress,
+} from './endurance-weather.mjs';
+import {
   comboCallout,
   createSeededRng,
   reconcileShotQueue,
@@ -40,6 +47,7 @@ export class EnduranceGame extends SkyRescueGame {
   constructor(canvas, callbacks = {}, options = {}) {
     super(canvas, callbacks);
     this.config = { ...ENDURANCE_CONFIG, ...(options.config || {}) };
+    this.weatherConfig = { ...ENDURANCE_WEATHER_CONFIG, ...(options.weatherConfig || {}) };
     this.renderer = new EnduranceRenderer(canvas, this.B);
     this.elapsedMs = 0;
     this.resolvedShots = 0;
@@ -51,6 +59,8 @@ export class EnduranceGame extends SkyRescueGame {
     this.lastIssuedShotWasSpecial = false;
     this.issuedShots = 0;
     this.lastSpecialCalloutAt = new Map();
+    this.weatherState = null;
+    this.weatherRng = null;
   }
 
   start(seed = 'endurance') {
@@ -65,6 +75,8 @@ export class EnduranceGame extends SkyRescueGame {
     this.lastIssuedShotWasSpecial = false;
     this.issuedShots = 0;
     this.lastSpecialCalloutAt = new Map();
+    this.weatherRng = createSeededRng(this.hashSeed(`endurance-weather-${runSeed}`));
+    this.weatherState = createEnduranceWeatherState({ nowMs: 0, rng: this.weatherRng, config: this.weatherConfig });
 
     this.B = createEnduranceGeometry({ rowPhase: 0 });
     const palette = paletteForElapsed(0, this.config);
@@ -138,10 +150,32 @@ export class EnduranceGame extends SkyRescueGame {
     ));
   }
 
+  projectileMetadataForShot(shot) {
+    if (shot?.collisionScale) {
+      return {
+        weatherType: shot.weatherType || this.weatherState?.current || 'clear',
+        collisionScale: shot.collisionScale,
+      };
+    }
+    return weatherShotMetadata(this.weatherState?.current || 'clear', this.weatherConfig);
+  }
+
+  collisionScaleForAimShot(shot) {
+    return Math.max(
+      .1,
+      Number(shot?.collisionScale)
+        || weatherShotMetadata(this.weatherState?.current || 'clear', this.weatherConfig).collisionScale,
+    );
+  }
+
   update(dt) {
     if (this.paused || this.status !== 'playing') return;
     const safeDt = Math.max(0, Number(dt) || 0);
     this.elapsedMs += safeDt * 1000;
+    const advanced = advanceEnduranceWeather(this.weatherState, this.elapsedMs, this.weatherRng, this.weatherConfig);
+    this.weatherState = advanced.state;
+    for (const change of advanced.changes) this.callbacks.onEnduranceWeather?.(change);
+    if (advanced.changes.length) this.emitState();
     this.advancePaletteStage();
     super.update(safeDt);
   }
@@ -295,16 +329,29 @@ export class EnduranceGame extends SkyRescueGame {
       colorCount: this.activePalette().length,
       misses: this.misses,
       rowsAdded: this.rowsAdded,
+      weather: this.weatherState?.current || 'clear',
+      previousWeather: this.weatherState?.previous || null,
+      weatherPhaseEndsMs: this.weatherState?.phaseEndsMs || 0,
+      weatherTransitionProgress: weatherTransitionProgress(this.weatherState, this.elapsedMs, this.weatherConfig),
       boss: false,
     };
   }
 
   renderState() {
+    const base = super.renderState();
+    const queueWeather = weatherShotMetadata(this.weatherState?.current || 'clear', this.weatherConfig);
     return {
-      ...super.renderState(),
+      ...base,
+      queue: base.queue.map((shot) => ({ ...shot, ...queueWeather })),
       mode: 'endurance',
       geometry: this.B,
       enduranceAtmosphere: enduranceAtmosphereState(this.elapsedMs, this.config),
+      enduranceWeather: {
+        current: this.weatherState?.current || 'clear',
+        previous: this.weatherState?.previous || null,
+        progress: weatherTransitionProgress(this.weatherState, this.elapsedMs, this.weatherConfig),
+        phaseEndsMs: this.weatherState?.phaseEndsMs || 0,
+      },
     };
   }
 
