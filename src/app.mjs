@@ -100,6 +100,8 @@ function createEnduranceGame() {
     onBounce: () => audio.bounce(),
     onCallout: (text) => { audio.pop(text); flashCallout(text); },
     onEnduranceRow: () => { audio.ceiling(); flashCallout('NOWY RZĄD'); },
+    onEndurancePalette: () => flashCallout('NOWY KOLOR', 1100, 'is-endurance-stage'),
+    onEnduranceSpecialReady: ({ label }) => flashCallout(label, 1500, 'is-special-ready'),
   });
 }
 
@@ -264,13 +266,17 @@ function updateHud(snapshot) {
   if (snapshot.boss) renderBossPips(refs.bossPips, snapshot.bossPhase, snapshot.bossPhases);
 }
 
-function flashCallout(text) {
+function flashCallout(text, duration = 760, className = '') {
   clearTimeout(calloutTimer);
-  refs.comboCallout.classList.remove('is-visible');
+  refs.comboCallout.classList.remove('is-visible', 'is-special-ready', 'is-endurance-stage');
   refs.comboCallout.textContent = text;
+  if (className) refs.comboCallout.classList.add(className);
   void refs.comboCallout.offsetWidth;
   refs.comboCallout.classList.add('is-visible');
-  calloutTimer = setTimeout(() => refs.comboCallout.classList.remove('is-visible'), 760);
+  calloutTimer = setTimeout(() => {
+    refs.comboCallout.classList.remove('is-visible');
+    if (className) refs.comboCallout.classList.remove(className);
+  }, duration);
 }
 
 function showWin(result) {
