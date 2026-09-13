@@ -12,12 +12,24 @@ import {
 const PATCH_FLAG = Symbol.for('balloon.hold-to-aim.patch');
 const GESTURE = Symbol('pointer-shot-gesture');
 const LISTENERS = Symbol('pointer-shot-listeners');
+const COARSE_INPUT = Symbol('pointer-shot-coarse-input');
 
 function coarsePointerEnvironment() {
   return Boolean(
     globalThis.matchMedia?.('(pointer: coarse)')?.matches
     || Number(globalThis.navigator?.maxTouchPoints || 0) > 0
   );
+}
+
+function pointerIsCoarse(pointerType) {
+  return pointerType === 'touch' || pointerType === 'pen';
+}
+
+function rememberPointerMode(game, event) {
+  const type = event?.pointerType;
+  if (!type) return;
+  if (type === 'mouse') game[COARSE_INPUT] = false;
+  else if (pointerIsCoarse(type)) game[COARSE_INPUT] = true;
 }
 
 function gestureState(game) {
@@ -56,6 +68,7 @@ function aimFromPointer(game, event) {
 function finishGesture(game, event, cancelled) {
   const current = gestureState(game);
   if (!current.active) return;
+  rememberPointerMode(game, event);
 
   if (cancelled) {
     // The active gesture can only be started by a primary pointer. Browsers may
@@ -114,6 +127,7 @@ export function applyHoldToAimPatch(GameClass = SkyRescueGame) {
 
   proto.start = function holdToAimStart(...args) {
     resetGesture(this);
+    this[COARSE_INPUT] = coarsePointerEnvironment();
     ensureFinishListeners(this);
     this.canvas.setAttribute(
       'aria-label',
@@ -134,6 +148,7 @@ export function applyHoldToAimPatch(GameClass = SkyRescueGame) {
   };
 
   proto.onPointerMove = function holdToAimPointerMove(event) {
+    rememberPointerMode(this, event);
     const current = gestureState(this);
     if (current.active) {
       if (!ownsPointerShotGesture(current, event.pointerId)) return;
@@ -143,7 +158,7 @@ export function applyHoldToAimPatch(GameClass = SkyRescueGame) {
     }
 
     // Desktop keeps hover-to-aim. Touch/pen input only changes aim after a press.
-    if (event.pointerType === 'touch' || event.pointerType === 'pen') return;
+    if (pointerIsCoarse(event.pointerType)) return;
     originalPointerMove.call(this, event);
   };
 
@@ -153,6 +168,7 @@ export function applyHoldToAimPatch(GameClass = SkyRescueGame) {
     if (gestureState(this).active) return;
     if (!aimFromPointer(this, event)) return;
 
+    rememberPointerMode(this, event);
     event.preventDefault();
     this.canvas.focus({ preventScroll: true });
     ensureFinishListeners(this);
@@ -168,7 +184,7 @@ export function applyHoldToAimPatch(GameClass = SkyRescueGame) {
   proto.renderState = function holdToAimRenderState(...args) {
     const state = originalRenderState.apply(this, args);
     const visible = shouldShowAimGuide({
-      coarsePointer: coarsePointerEnvironment(),
+      coarsePointer: Boolean(this[COARSE_INPUT]),
       gestureActive: gestureState(this).active,
     });
     if (!visible) {
